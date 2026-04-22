@@ -31,25 +31,36 @@ typedef struct PacketGameTime {
 // Serializeable.
 static_assert(sizeof(PacketGameTime) == 0x18, "wrong size");
 
+// Packet4: CLIENT → HOST movement request.
+// The host executes the movement for the client's object, then broadcasts
+// Packet5 (new anim goal) back to all clients so they can replicate locally.
+// subtype: 0=walk, 1=run, 2=walk_ex
 typedef struct Packet4 {
     /* 0000 */ int type;
     /* 0004 */ int subtype;
-    /* 0008 */ ObjectID oid;
-    /* 0020 */ int64_t loc;
+    /* 0008 */ ObjectID oid;   // object the client wants to move
+    /* 0020 */ int64_t loc;    // destination tile
 } Packet4;
 
 // Serializeable.
 static_assert(sizeof(Packet4) == 0x28, "wrong size");
 
+// Packet5: HOST → ALL CLIENTS new animation goal.
+// Sent by anim_goal_add_func() for PC objects when the host starts a goal.
+// field_10.field_B0[0..4] contains serialized Ryan (OID) refs for the 5
+// object-handle params. Handlers must call object_resolve_obj_ref exactly 5
+// times (not AGDATA_COUNT=21) — field_B0 is only 5 entries wide.
+// field_198 carries the host's AnimID so clients allocate a slot with the
+// same unique_id, allowing Packet10 to find and free the slot later.
 typedef struct Packet5 {
     /* 0000 */ int type;
     /* 0004 */ int padding_4;
     /* 0008 */ DateTime field_8;
-    /* 0010 */ AnimGoalData field_10;
-    /* 0188 */ int64_t loc;
+    /* 0010 */ AnimGoalData field_10; // goal data with serialized obj refs in field_B0
+    /* 0188 */ int64_t loc;           // object's current position (snap before starting goal)
     /* 0190 */ int offset_x;
     /* 0194 */ int offset_y;
-    /* 0198 */ AnimID field_198;
+    /* 0198 */ AnimID field_198;      // host's AnimID — must be passed through to anim_goal_add_mp
     /* 01A4 */ int field_1A4;
 } Packet5;
 
@@ -73,9 +84,12 @@ typedef struct Packet6 {
 // Serializeable.
 static_assert(sizeof(Packet6) == 0x78, "wrong size");
 
+// Packet7: HOST → ALL CLIENTS add subgoal to existing animation.
+// Same field_B0 loop-limit caveat as Packet5: resolve exactly 5 obj refs.
+// anim_id is the host's AnimID for the parent goal (must already exist on client).
 typedef struct Packet7 {
     /* 0000 */ int type;
-    /* 0004 */ AnimID anim_id;
+    /* 0004 */ AnimID anim_id;    // parent goal's AnimID (host-assigned)
     /* 0010 */ AnimGoalData goal_data;
     /* 0188 */ int64_t loc;
     /* 0190 */ int offset_x;
@@ -118,15 +132,22 @@ typedef struct Packet9 {
 
 static_assert(sizeof(Packet9) == 0x68, "wrong size");
 
+// Packet10: HOST → ALL CLIENTS animation goal complete.
+// Snaps object to final authoritative position/art and marks the anim slot done.
+// anim_id uses the host's unique_id — anim_run_info_id_matches() in MP mode
+// matches by unique_id only, so the client's physical slot_num doesn't matter
+// as long as anim_goal_add_mp() preserved the unique_id when allocating.
+// If the ID lookup fails ("Could not convert ID to slot"), the position snap
+// (object_move_to_location) still happens but the slot is never freed → leak.
 typedef struct Packet10 {
     /* 0000 */ int type;
-    /* 0004 */ AnimID anim_id;
-    /* 0010 */ ObjectID oid;
-    /* 0028 */ int64_t loc;
+    /* 0004 */ AnimID anim_id;      // host's AnimID; matched by unique_id on client
+    /* 0010 */ ObjectID oid;        // object to snap (looked up via obj_pool_perm_lookup)
+    /* 0028 */ int64_t loc;         // authoritative final tile position
     /* 0030 */ int offset_x;
     /* 0034 */ int offset_y;
-    /* 0038 */ tig_art_id_t art_id;
-    /* 003C */ int flags;
+    /* 0038 */ tig_art_id_t art_id; // final art frame (TIG_ART_ID_INVALID = don't change)
+    /* 003C */ int flags;           // run_info->flags value (clears active bit 0x1)
 } Packet10;
 
 // Serializeable.
@@ -672,27 +693,33 @@ typedef struct Packet128 {
 // Serializeable.
 static_assert(sizeof(Packet128) == 0x38, "wrong size");
 
-bool sub_4ED6C0(int64_t obj);
+bool mp_object_destroy(int64_t obj);
 bool mp_object_create(int name, int64_t loc, int64_t* obj_ptr);
-void sub_4EDA60(UiMessage* ui_message, int player, int a3);
-void sub_4EDCE0(int64_t obj, tig_art_id_t art_id);
+void mp_ui_message_send(UiMessage* ui_message, int player, int a3);
+void mp_object_set_art(int64_t obj, tig_art_id_t art_id);
 void mp_ui_update_inven(int64_t obj);
-void sub_4EDF20(int64_t obj, int64_t location, int dx, int dy, bool a7);
+void mp_object_set_position(int64_t obj, int64_t location, int dx, int dy, bool a7);
 void mp_item_activate(int64_t owner_obj, int64_t item_obj);
 void mp_ui_written_start_type(int64_t obj, WrittenType written_type, int num);
 void mp_ui_show_inven_loot(int64_t obj, int64_t a2);
-void sub_4EE3A0(int64_t obj, int64_t a2);
+void mp_ui_show_inven_repair(int64_t obj, int64_t a2);
 void mp_ui_show_inven_identify(int64_t pc_obj, int64_t target_obj);
-void sub_4EE4C0(int64_t obj, int64_t a2);
-void sub_4EF830(int64_t a1, int64_t a2);
-void sub_4EFAE0(int64_t obj, int a2);
-void sub_4EFBA0(int64_t obj);
-void sub_4EFC30(int64_t pc_obj, const char* name, const char* rule);
+void mp_ui_show_dialog_or_send(int64_t obj, int64_t a2);
+void mp_critter_set_relationship(int64_t a1, int64_t a2);
+void mp_critter_animation_set(int64_t obj, int a2);
+void mp_client_notify_animation_set(int64_t obj);
+void mp_level_scheme_broadcast(int64_t pc_obj, const char* name, const char* rule);
 void mp_gsound_play_sfx(int sound_id);
-void sub_4EED00(int64_t obj, int sound_id);
+void mp_gsound_play_sfx_for_player(int64_t obj, int sound_id);
 void mp_gsound_play_sfx_on_obj(int sound_id, int loops, int64_t obj);
 void mp_gsound_play_scheme(int music_scheme_idx, int ambient_scheme_idx);
-void sub_4F0640(int64_t obj, ObjectID* oid_ptr);
-void sub_4F0690(ObjectID oid, int64_t* obj_ptr);
+void mp_obj_to_oid(int64_t obj, ObjectID* oid_ptr);
+void mp_oid_to_obj(ObjectID oid, int64_t* obj_ptr);
+void mp_handle_ui_update_inven(PacketUpdateInven* pkt);
+void mp_handle_object_set_position(Packet99* pkt);
+void mp_handle_ui_update(Packet100* pkt);
+void mp_handle_gsound_play_scheme(PacketPlaySound* pkt);
+void mp_handle_critter_set_relationship(Packet118* pkt);
+void mp_handle_critter_animation_set(Packet121* pkt);
 
 #endif /* ARCANUM_GAME_MP_UTILS_H_ */

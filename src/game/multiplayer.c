@@ -1,3 +1,88 @@
+/*
+ * multiplayer.c — Arcanum CE multiplayer layer
+ *
+ * ARCHITECTURE: HOST-AUTHORITATIVE
+ * =================================
+ * One player is the HOST; all others are CLIENTS (guests). Only the host
+ * runs game logic (AI, pathfinding, combat). Clients send requests; the host
+ * executes them and broadcasts results.
+ *
+ * CRITICAL — tig_net_send_app_all() asymmetry:
+ *   When HOST calls it  → sends to ALL connected clients (slot -1 broadcast)
+ *   When CLIENT calls it → sends ONLY to the host (slot 0)
+ * This is intentional and correct — the function name is misleading when
+ * called from a client. Do not "fix" this; client→host communication works.
+ *
+ * PACKET FLOW (movement example):
+ *   1. Guest clicks to move
+ *      → anim_goal_move_to_tile() sees !tig_net_is_host()
+ *      → sends Packet4 (movement request) via tig_net_send_app_all()
+ *        [client→host only, despite the name]
+ *
+ *   2. Host receives Packet4
+ *      → calls anim_goal_move_to_tile(placeholder_obj, loc)
+ *      → anim_goal_add_func() runs the goal, broadcasts Packet5 to clients
+ *        [host→all clients]
+ *
+ *   3. Clients receive Packet5
+ *      → anim_goal_add_mp() allocates a local slot using the HOST's AnimID
+ *        (same unique_id), so Packet10 can find it later
+ *      → object_move_to_location() snaps to starting position
+ *      → animation plays out locally for smooth movement
+ *
+ *   4. Host finishes goal, sends Packet10 (position snap + flags)
+ *      [host→all clients]
+ *
+ *   5. Clients receive Packet10
+ *      → anim_goal_reset_position_mp() snaps to authoritative final position
+ *      → looks up slot by unique_id (anim_run_info_id_matches checks only
+ *        unique_id in MP mode, not slot_num) and updates run_info->flags
+ *        to mark the animation complete/free the slot
+ *
+ * PACKET TYPES (see mp_utils.h for structs):
+ *   Packet2  — player list broadcast (host → clients, on connect/disconnect)
+ *   Packet4  — movement request      (client → host)
+ *   Packet5  — new anim goal         (host → clients)
+ *   Packet7  — add subgoal           (host → clients)
+ *   Packet8  — modify active anim    (host → clients, currently a stub)
+ *   Packet9  — interrupt all goals   (host → clients)
+ *   Packet10 — goal complete / pos snap (host → clients)
+ *
+ * PLACEHOLDER OBJECTS:
+ *   When a client connects, the host creates a placeholder PC object for
+ *   them via player_obj_create_player() with PLAYER_CREATE_INFO_NETWORK.
+ *   This placeholder represents the guest in the host's world.
+ *
+ *   Pitfall: player_obj_create_player() with basic_prototype=-1 uses the
+ *   generic PC prototype which has zero stat values → HP=0 →
+ *   critter_is_dead()=true → critter_is_active()=false →
+ *   anim_critter_can_move()=false → host can't animate the placeholder.
+ *   Fix: call object_hp_adj_set(obj, 10) after creation.
+ *
+ * ANIM SLOT LIFECYCLE (MP):
+ *   - Slots are indexed 0..215 in anim_run_info[].
+ *   - AnimID has {slot_num, unique_id, field_8}.
+ *   - anim_run_info_id_matches() in MP mode matches by unique_id ONLY
+ *     (slot_num is irrelevant across machines). Host and client can use
+ *     different physical slots as long as unique_id is preserved.
+ *   - anim_goal_add_mp() must pass the host's AnimID (a3=false) so the
+ *     client slot carries the host's unique_id. If a fresh ID is allocated
+ *     instead, Packet10 can never find the slot → flags never cleared →
+ *     slot leaks → all 216 slots fill up → no more animations possible.
+ *   - anim_allocate_this_run_index() had an OOB bug: when slot_num is
+ *     valid (0-215) but free, both search loops were skipped and slot
+ *     stayed at 216, causing anim_run_info[216] OOB write. Fixed by
+ *     adding else { slot = anim_id->slot_num; } for the free-slot case.
+ *
+ * OBJECT REF SERIALIZATION:
+ *   AnimGoalData has params[AGDATA_COUNT=21] and field_B0[5].
+ *   field_B0 holds Ryan (serialized OID) entries for the 5 object-handle
+ *   params (indices 0-4: SELF, TARGET, BLOCK, SCRATCH, PARENT).
+ *   object_save_obj_ref / object_resolve_obj_ref must loop exactly 5 times.
+ *   Looping AGDATA_COUNT (21) times reads 16 entries past field_B0[] and
+ *   corrupts params[5..20] including AGDATA_TARGET_TILE → garbage move dst.
+ */
+
 #include "game/multiplayer.h"
 
 #include <stdio.h>
@@ -48,7 +133,7 @@ typedef struct MpHiddenOid {
 typedef struct MpPlayerSlot {
     /* 0000 */ unsigned int flags;
     /* 0004 */ int field_4;
-    /* 0008 */ ObjectID field_8;
+    /* 0008 */ ObjectID field_8; // ObjectID of this player's in-world PC object (host's placeholder for guests)
     /* 0020 */ int field_20;
     /* 0024 */ int field_24;
     /* 0028 */ int field_28;
