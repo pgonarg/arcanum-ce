@@ -2795,6 +2795,15 @@ bool anim_id_to_run_info(AnimID* anim_id, AnimRunInfo** run_info_ptr)
 }
 
 // 0x421CE0
+// Matching rules differ between SP and MP:
+//   SP: unique_id AND slot_num must both match.
+//   MP: unique_id ONLY — slot_num is ignored.
+// This is intentional: host and client use different physical slot indices
+// for the same animation, but share the same unique_id (embedded in Packet5
+// and preserved by anim_goal_add_mp). Packet10 finds the client's slot via
+// unique_id. If anim_goal_add_mp allocates a fresh unique_id instead of
+// reusing the host's, this function will never match → "Could not convert ID
+// to slot!" → slot never freed → leak → all 216 slots fill → no more anims.
 bool anim_run_info_id_matches(AnimID* anim_id, AnimRunInfo* run_info)
 {
     ASSERT(anim_id != NULL); // pAnimID != NULL
@@ -13426,6 +13435,19 @@ bool anim_goal_move_to_tile(int64_t obj, int64_t loc)
 }
 
 // 0x4339A0
+// Gate for all character movement. Returns false (silently) if any of:
+//   - obj is null
+//   - critter_is_active() is false — this is the most common MP pitfall:
+//       critter_is_active() calls critter_is_dead() which returns true when
+//       object_hp_current(obj) <= 0. Guest placeholder objects created from
+//       the generic PC prototype (basic_prototype=-1) have zero stat values
+//       → HP=0 → critter_is_dead()=true → this function returns false.
+//       Fix: call object_hp_adj_set(obj, 10) after creating the placeholder
+//       in multiplayer_handle_network_event CLIENT_CONNECT handler.
+//   - it's TB combat and it's not this obj's turn
+//   - NPC with no reaction to the primary PC (reaction_get_primary_pc != 0)
+// If movement goals silently do nothing on the host for a guest's placeholder,
+// check this function first — critter_is_active() is almost always the cause.
 bool anim_critter_can_move(int64_t obj)
 {
     return obj != OBJ_HANDLE_NULL
@@ -13443,10 +13465,15 @@ bool anim_goal_move_to_tile_ex(int64_t obj, int64_t loc, bool a3)
 
     if (tig_net_is_active()
         && !tig_net_is_host()) {
+        // CLIENT PATH: don't run movement locally — send a Packet4 request to
+        // the host. The host will call anim_goal_move_to_tile_ex() for the
+        // placeholder, which will actually run the animation, broadcast Packet5
+        // (new goal) to all clients, and eventually send Packet10 (pos snap).
+        // Note: tig_net_send_app_all() from a client sends ONLY to the host.
         if (anim_is_current_goal_type(obj, AG_RUN_TO_TILE, &anim_id)
             && anim_id_to_run_info(&anim_id, &run_info)
             && run_info->goals[run_info->current_goal].params[AGDATA_TARGET_TILE].loc == loc) {
-            return false;
+            return false; // dedup: already running to this exact tile
         }
 
         Packet4 pkt;

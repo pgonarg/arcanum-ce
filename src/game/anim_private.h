@@ -131,9 +131,20 @@ typedef struct AnimGoalNode {
     /* 0020 */ AnimGoalSubNode subnodes[15];
 } AnimGoalNode;
 
+// AnimID identifies a slot in anim_run_info[0..215].
+//
+// In single-player, anim_run_info_id_matches() requires BOTH slot_num AND
+// unique_id to match. In multiplayer it checks unique_id ONLY (slot_num is
+// irrelevant across machines). This means host and client can use different
+// physical slot numbers for the same animation as long as unique_id matches.
+//
+// When sending Packet5 (new goal), the host's AnimID (including unique_id) is
+// embedded in the packet. anim_goal_add_mp() must pass this ID through with
+// a3=false so the client allocates a slot carrying the same unique_id. If a
+// fresh ID is used instead, Packet10 can never match the slot → slot leaks.
 typedef struct AnimID {
-    int slot_num;
-    int unique_id;
+    int slot_num;  // index into anim_run_info[]; differs between host/client — don't compare across machines
+    int unique_id; // monotonically increasing counter; matched by Packet10 lookup in MP mode
     int field_8;
 } AnimID;
 
@@ -189,11 +200,23 @@ typedef enum AgData {
 #define AGDATA_NULL_OBJ 33
 #define AGDATA_FORCE_TARGET_TILE 34
 
+// AnimGoalData holds all parameters for one animation goal.
+//
+// params[] has AGDATA_COUNT (21) entries covering both object handles AND
+// plain integer/location values. field_B0[] is the serialization array for
+// the FIRST 5 params only (indices 0-4: SELF, TARGET, BLOCK, SCRATCH, PARENT)
+// — those are the object-handle params that need OID↔handle translation
+// via object_save_obj_ref / object_resolve_obj_ref.
+//
+// CRITICAL: field_B0 has exactly 5 entries. When serializing for Packet5/7,
+// loop exactly 5 times — NOT AGDATA_COUNT (21). Reading indices 5-20 goes
+// past the end of field_B0 and corrupts params[5..20] on the receiving side,
+// including AGDATA_TARGET_TILE (index 5), causing movement to garbage tiles.
 typedef struct AnimGoalData {
     /* 0000 */ int type;
     /* 0004 */ int padding_4;
-    /* 0008 */ AnimRunInfoParam params[AGDATA_COUNT];
-    /* 00B0 */ Ryan field_B0[5];
+    /* 0008 */ AnimRunInfoParam params[AGDATA_COUNT]; // indices 0-4 are obj handles; 5+ are ints/locs
+    /* 00B0 */ Ryan field_B0[5];                     // serialized OIDs for params[0..4] only
 } AnimGoalData;
 
 // Serializeable.
@@ -240,55 +263,55 @@ typedef struct AnimRunInfo {
     /* 0D34 */ int field_D34;
 } AnimRunInfo;
 
-extern const char* off_5A164C[];
-extern int dword_5A5978;
-extern int dword_5A597C[AGDATA_COUNT];
-extern bool dword_5E34F4;
-extern void (*dword_5E34F8)(void);
+extern const char* anim_goal_names[];
+extern int anim_current_run_index;
+extern int anim_goal_data_types[AGDATA_COUNT];
+extern bool anim_slots_full;
+extern void (*anim_all_done_callback)(void);
 extern bool in_anim_load;
-extern int dword_5E3500;
+extern int anim_active_count;
 extern int animNumActiveGoals;
 extern int anim_next_unique_id;
-extern int dword_739E40;
-extern int dword_739E44;
+extern int anim_field_739E40;
+extern int anim_field_739E44;
 
 extern AnimRunInfo anim_run_info[216];
 
-void sub_44C840(AnimRunInfo* run_info, AnimGoalNode* goal_node);
-bool sub_44C9A0(AnimRunInfo* run_info);
+void anim_active_goal_count_increment(AnimRunInfo* run_info, AnimGoalNode* goal_node);
+bool anim_run_info_is_active_goal(AnimRunInfo* run_info);
 bool anim_private_init(GameInitInfo* init_info);
 void anim_private_exit(void);
 void anim_private_reset(void);
-bool sub_44CB60(void);
+bool anim_is_processing(void);
 bool anim_goal_restart(AnimID* anim_id);
 bool mp_deallocate_run_index(AnimID* anim_id);
-void sub_44C8F0(AnimRunInfo* run_info, AnimGoalNode* goal_node);
+void anim_active_goal_count_decrement(AnimRunInfo* run_info, AnimGoalNode* goal_node);
 bool anim_allocate_new_run_index(AnimID* anim_id);
-void sub_44D0C0(AnimRunInfo* run_info);
+void anim_run_info_nop(AnimRunInfo* run_info);
 int anim_find_first(int64_t obj);
 int anim_find_next(int prev, int64_t obj);
-bool sub_44D4E0(AnimGoalData* goal_data, int64_t obj, int goal_type);
-bool sub_44D500(AnimGoalData* goal_data, int64_t obj, int goal_type);
+bool anim_goal_data_init_with_interrupt(AnimGoalData* goal_data, int64_t obj, int goal_type);
+bool anim_goal_data_init_no_interrupt(AnimGoalData* goal_data, int64_t obj, int goal_type);
 bool anim_goal_add(AnimGoalData* goal_data, AnimID* anim_id);
 bool anim_goal_add_ex(AnimGoalData* goal_data, AnimID* anim_id, unsigned int flags);
 bool anim_subgoal_add(AnimID anim_id, AnimGoalData* goal_data, const char* file, int line);
 bool anim_recover_handles(AnimRunInfo* run_info, AnimGoalSubNode* goal_subnode);
-void sub_44E050(int64_t a1, int64_t a2);
-void sub_44E0E0(int64_t a1, int64_t a2);
+void anim_interrupt_if_attacking_leader(int64_t a1, int64_t a2);
+void anim_interrupt_if_attacking_target(int64_t a1, int64_t a2);
 bool anim_force_interrupt(AnimID* anim_id);
 bool anim_interrupt(AnimID* anim_id, int priority);
 bool anim_find_first_of_type(int64_t obj, int type, AnimID* anim_id);
 bool anim_find_next_of_type(int64_t obj, int type, AnimID* anim_id);
-bool sub_44E6F0(int64_t obj, AnimGoalData* goal_data);
+bool anim_goal_find_matching(int64_t obj, AnimGoalData* goal_data);
 bool anim_interrupt_all_goals_of_type(int64_t obj, int goal_type, int next_goal_type);
-bool sub_44E710(int64_t obj, AnimGoalData* goal_data, AnimID* anim_id);
+bool anim_goal_find_matching_ex(int64_t obj, AnimGoalData* goal_data, AnimID* anim_id);
 bool anim_is_current_goal_type(int64_t obj, int goal_type, AnimID* anim_id);
-bool sub_44E8C0(int64_t obj, AnimID* anim_id);
+bool anim_has_active_goal(int64_t obj, AnimID* anim_id);
 bool anim_is_attacking(int64_t attacker_obj, AnimID* anim_id, int64_t target_obj);
-bool sub_44EB40(int64_t obj, int64_t from, int64_t to);
+bool anim_can_path_to(int64_t obj, int64_t from, int64_t to);
 void anim_path_init(AnimPath* path);
 void anim_path_destroy(AnimPath* path);
-void sub_44EBF0(AnimRunInfo* run_info);
+void anim_mp_wait_for_path(AnimRunInfo* run_info);
 void anim_run_index_debug(int index);
 void anim_stats(void);
 
