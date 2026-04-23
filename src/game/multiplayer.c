@@ -971,6 +971,23 @@ bool multiplayer_map_open_by_name(const char* name)
 void multiplayer_handle_message(void* msg)
 {
     int type;
+    PacketGamePlayerList* pkt0;
+    PacketGameTime* pkt1;
+    Packet4* pkt4;
+    Packet5* pkt5;
+    Packet6* pkt6;
+    Packet7* pkt7;
+    Packet8* pkt8;
+    Packet9* pkt9;
+    Packet10* pkt10;
+    PacketCombatModeSet* pkt26;
+    Packet27* pkt27;
+    Packet28* pkt28;
+    Packet29* pkt29;
+    Packet46* pkt46;
+    Packet64* pkt64;
+    PacketPartyUpdate* pkt71;
+    PacketObjectDestroy* pkt72;
 
     if (msg == NULL) {
         return;
@@ -980,24 +997,55 @@ void multiplayer_handle_message(void* msg)
 
     switch (type) {
     case 0:  // PacketGamePlayerList
+        pkt0 = (PacketGamePlayerList*)msg;
         break;
     case 1:  // PacketGameTime
+        pkt1 = (PacketGameTime*)msg;
         break;
-    case 4:  // Packet4
+    case 4:  // Packet4 (object event)
+        pkt4 = (Packet4*)msg;
         break;
     case 5:  // Packet5 (anim goal)
+        pkt5 = (Packet5*)msg;
         break;
     case 6:  // Packet6 (spell/combat)
+        pkt6 = (Packet6*)msg;
         break;
     case 7:  // Packet7 (anim goal restart)
+        pkt7 = (Packet7*)msg;
         break;
     case 8:  // Packet8 (modify goal)
+        pkt8 = (Packet8*)msg;
         break;
     case 9:  // Packet9 (follower)
+        pkt9 = (Packet9*)msg;
         break;
     case 10:  // Packet10 (inventory slot)
+        pkt10 = (Packet10*)msg;
         break;
     case 26:  // PacketCombatModeSet
+        pkt26 = (PacketCombatModeSet*)msg;
+        break;
+    case 27:  // Packet27 (object location)
+        pkt27 = (Packet27*)msg;
+        break;
+    case 28:  // Packet28 (inventory item)
+        pkt28 = (Packet28*)msg;
+        break;
+    case 29:  // Packet29
+        pkt29 = (Packet29*)msg;
+        break;
+    case 46:  // Packet46
+        pkt46 = (Packet46*)msg;
+        break;
+    case 64:  // Packet64 (spell)
+        pkt64 = (Packet64*)msg;
+        break;
+    case 71:  // PacketPartyUpdate
+        pkt71 = (PacketPartyUpdate*)msg;
+        break;
+    case 72:  // PacketObjectDestroy
+        pkt72 = (PacketObjectDestroy*)msg;
         break;
     default:
         break;
@@ -1065,6 +1113,10 @@ void sub_4A2040(int a1)
 // 0x4A2070
 bool multiplayer_handle_network_event(int type, int client_id, void* data, int size)
 {
+    (void)client_id;
+    (void)data;
+    (void)size;
+
     switch (type) {
     case 0:  // Connect
         break;
