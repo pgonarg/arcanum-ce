@@ -22,6 +22,36 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
+
+// Simple logging to file
+static void net_log(const char* format, ...)
+{
+    FILE* log_file;
+    va_list args;
+    time_t now;
+    struct tm* timeinfo;
+    char timestamp[32];
+
+    log_file = fopen("network.log", "a");
+    if (log_file == NULL) {
+        return;
+    }
+
+    time(&now);
+    timeinfo = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "%H:%M:%S", timeinfo);
+
+    fprintf(log_file, "[%s] ", timestamp);
+    va_start(args, format);
+    vfprintf(log_file, format, args);
+    va_end(args);
+    fprintf(log_file, "\n");
+    fflush(log_file);
+    fclose(log_file);
+}
+
+#include <stdarg.h>
 
 // Global state
 static SOCKET server_socket = INVALID_SOCKET_VAL;
@@ -134,13 +164,13 @@ bool net_start_server(void)
     struct sockaddr_in server_addr;
 
     if (!net_init()) {
-        printf("[NET] Failed to initialize network\n");
+        net_log("Failed to initialize network");
         return false;
     }
 
     server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server_socket == INVALID_SOCKET_VAL) {
-        printf("[NET] Failed to create server socket\n");
+        net_log("Failed to create server socket");
         return false;
     }
 
@@ -152,20 +182,20 @@ bool net_start_server(void)
     server_addr.sin_port = htons(NET_PORT);
 
     if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR_VAL) {
-        printf("[NET] Failed to bind server socket to port %d\n", NET_PORT);
+        net_log("Failed to bind server socket to port %d", NET_PORT);
         closesocket_compat(server_socket);
         server_socket = INVALID_SOCKET_VAL;
         return false;
     }
 
     if (listen(server_socket, 1) == SOCKET_ERROR_VAL) {
-        printf("[NET] Failed to listen on server socket\n");
+        net_log("Failed to listen on server socket");
         closesocket_compat(server_socket);
         server_socket = INVALID_SOCKET_VAL;
         return false;
     }
 
-    printf("[NET] SERVER: Listening on localhost:%d\n", NET_PORT);
+    net_log("SERVER: Listening on localhost:%d", NET_PORT);
     is_host = true;
     is_active = true;
     connected_client = INVALID_SOCKET_VAL;
@@ -196,15 +226,15 @@ bool net_start_client(const char* host)
     const char* target_host = (host != NULL) ? host : "127.0.0.1";
 
     if (!net_init()) {
-        printf("[NET] Failed to initialize network\n");
+        net_log("Failed to initialize network");
         return false;
     }
 
-    printf("[NET] CLIENT: Attempting to connect to %s:%d\n", target_host, NET_PORT);
+    net_log("CLIENT: Attempting to connect to %s:%d", target_host, NET_PORT);
 
     client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (client_socket == INVALID_SOCKET_VAL) {
-        printf("[NET] Failed to create client socket\n");
+        net_log("Failed to create client socket");
         return false;
     }
 
@@ -220,7 +250,7 @@ bool net_start_client(const char* host)
 #ifdef _WIN32
         int err = WSAGetLastError();
         if (err != WSAEWOULDBLOCK && err != WSAEINPROGRESS) {
-            printf("[NET] Connect failed with error %d\n", err);
+            net_log("Connect failed with error %d", err);
             closesocket_compat(client_socket);
             client_socket = INVALID_SOCKET_VAL;
             return false;
@@ -228,7 +258,7 @@ bool net_start_client(const char* host)
 #else
         int err = errno;
         if (err != EINPROGRESS && err != EWOULDBLOCK) {
-            printf("[NET] Connect failed with error %d\n", err);
+            net_log("Connect failed with error %d", err);
             closesocket_compat(client_socket);
             client_socket = INVALID_SOCKET_VAL;
             return false;
@@ -236,7 +266,7 @@ bool net_start_client(const char* host)
 #endif
     }
 
-    printf("[NET] CLIENT: Connection initiated\n");
+    net_log("CLIENT: Connection initiated");
     is_host = false;
     is_active = true;
     return true;
@@ -286,14 +316,14 @@ void net_send_message(void* msg, int size)
         if (connected_client != INVALID_SOCKET_VAL) {
             sent = send(connected_client, (const char*)buffer, total_size, 0);
             if (sent == SOCKET_ERROR_VAL) {
-                printf("[NET] SERVER: Send failed, client disconnected\n");
+                net_log("SERVER: Send failed, client disconnected");
                 closesocket_compat(connected_client);
                 connected_client = INVALID_SOCKET_VAL;
                 if (event_handler != NULL) {
                     event_handler(NET_EVENT_CLIENT_DISCONNECTED);
                 }
             } else {
-                printf("[NET] SERVER: Sent %d bytes\n", sent);
+                net_log("SERVER: Sent %d bytes", sent);
             }
         }
     } else {
@@ -301,7 +331,7 @@ void net_send_message(void* msg, int size)
         if (client_socket != INVALID_SOCKET_VAL) {
             sent = send(client_socket, (const char*)buffer, total_size, 0);
             if (sent == SOCKET_ERROR_VAL) {
-                printf("[NET] CLIENT: Send failed, connection lost\n");
+                net_log("CLIENT: Send failed, connection lost");
                 closesocket_compat(client_socket);
                 client_socket = INVALID_SOCKET_VAL;
                 is_active = false;
@@ -309,7 +339,7 @@ void net_send_message(void* msg, int size)
                     event_handler(NET_EVENT_CONNECTION_LOST);
                 }
             } else {
-                printf("[NET] CLIENT: Sent %d bytes\n", sent);
+                net_log("CLIENT: Sent %d bytes", sent);
             }
         }
     }
@@ -374,10 +404,10 @@ void net_poll(void)
                 listen_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
                 if (listen_socket != INVALID_SOCKET_VAL) {
                     if (connected_client != INVALID_SOCKET_VAL) {
-                        printf("[NET] SERVER: Rejected second client connection\n");
+                        net_log("SERVER: Rejected second client connection");
                         closesocket_compat(listen_socket);
                     } else {
-                        printf("[NET] SERVER: Client connected from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                        net_log("SERVER: Client connected from %s:%d", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
                         connected_client = listen_socket;
                         set_nonblocking(connected_client);
                         if (event_handler != NULL) {
@@ -394,10 +424,10 @@ void net_poll(void)
                     msg_length = *(int*)buffer;
                     if (msg_length > 0 && msg_length <= received - 4 && msg_length <= NET_MAX_MESSAGE_SIZE) {
                         queue_enqueue(buffer + 4, msg_length);
-                        printf("[NET] SERVER: Received message (%d bytes)\n", msg_length);
+                        net_log("SERVER: Received message (%d bytes)", msg_length);
                     }
                 } else if (received == 0 || received == SOCKET_ERROR_VAL) {
-                    printf("[NET] SERVER: Client disconnected\n");
+                    net_log("SERVER: Client disconnected");
                     closesocket_compat(connected_client);
                     connected_client = INVALID_SOCKET_VAL;
                     if (event_handler != NULL) {
@@ -422,10 +452,10 @@ void net_poll(void)
                 msg_length = *(int*)buffer;
                 if (msg_length > 0 && msg_length <= received - 4 && msg_length <= NET_MAX_MESSAGE_SIZE) {
                     queue_enqueue(buffer + 4, msg_length);
-                    printf("[NET] CLIENT: Received message (%d bytes)\n", msg_length);
+                    net_log("CLIENT: Received message (%d bytes)", msg_length);
                 }
             } else if (received == 0 || received == SOCKET_ERROR_VAL) {
-                printf("[NET] CLIENT: Connection lost\n");
+                net_log("CLIENT: Connection lost");
                 closesocket_compat(client_socket);
                 client_socket = INVALID_SOCKET_VAL;
                 is_active = false;
