@@ -636,7 +636,9 @@ void mp_send_object_location(int64_t obj, int64_t loc)
 {
     Packet27 pkt;
 
-    if (!tig_net_is_active() || tig_net_is_host()) {
+    // Send location updates only if networking is active
+    // Both host and client send their own positions
+    if (!tig_net_is_active()) {
         return;
     }
 
