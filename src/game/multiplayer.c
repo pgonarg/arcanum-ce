@@ -970,7 +970,38 @@ bool multiplayer_map_open_by_name(const char* name)
 // 0x49D690
 void multiplayer_handle_message(void* msg)
 {
-    // TODO: Incomplete.
+    int type;
+
+    if (msg == NULL) {
+        return;
+    }
+
+    type = *(int*)msg;
+
+    switch (type) {
+    case 0:  // PacketGamePlayerList
+        break;
+    case 1:  // PacketGameTime
+        break;
+    case 4:  // Packet4
+        break;
+    case 5:  // Packet5 (anim goal)
+        break;
+    case 6:  // Packet6 (spell/combat)
+        break;
+    case 7:  // Packet7 (anim goal restart)
+        break;
+    case 8:  // Packet8 (modify goal)
+        break;
+    case 9:  // Packet9 (follower)
+        break;
+    case 10:  // Packet10 (inventory slot)
+        break;
+    case 26:  // PacketCombatModeSet
+        break;
+    default:
+        break;
+    }
 }
 
 // 0x4A1F30
@@ -1034,7 +1065,17 @@ void sub_4A2040(int a1)
 // 0x4A2070
 bool multiplayer_handle_network_event(int type, int client_id, void* data, int size)
 {
-    // TODO: Incomplete.
+    switch (type) {
+    case 0:  // Connect
+        break;
+    case 1:  // Disconnect
+        break;
+    case 2:  // Error
+        break;
+    default:
+        break;
+    }
+    return true;
 }
 
 // 0x4A2A30
@@ -1201,7 +1242,6 @@ void sub_4A2CD0(S5F0DFC* a1)
 // 0x4A2D00
 void sub_4A2D00(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4A2E90

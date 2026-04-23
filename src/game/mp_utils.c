@@ -494,19 +494,16 @@ void mp_handle_gsound_play_scheme(PacketPlaySound* pkt)
 // 0x4EF320
 void sub_4EF320(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EF3D0
 void sub_4EF3D0(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EF540
 void sub_4EF540(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EF830
@@ -587,7 +584,6 @@ void sub_4EFBA0(int64_t obj)
 // 0x4EFBE0
 void sub_4EFBE0(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EFC30
@@ -613,7 +609,6 @@ void sub_4EFC30(int64_t pc_obj, const char* name, const char* rule)
 // 0x4F05F0
 void sub_4F05F0(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4F0640
