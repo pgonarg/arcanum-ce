@@ -31,6 +31,7 @@
 #include "game/tech.h"
 #include "game/tf.h"
 #include "game/timeevent.h"
+#include "game/location.h"
 #include "game/trap.h"
 #include "game/ui.h"
 
@@ -993,7 +994,7 @@ void multiplayer_handle_message(void* msg)
     type = *(int*)msg;
 
     switch (type) {
-    case 0: {
+    case 2: {
         // PacketGamePlayerList — host broadcasts all player ObjectIDs on join
         PacketGamePlayerList* pkt = (PacketGamePlayerList*)msg;
         MP_INFO(MP_CAT_SESSION, "Received player list from host");
@@ -1003,12 +1004,6 @@ void multiplayer_handle_message(void* msg)
                 MP_DEBUG(MP_CAT_SESSION, "  Slot %d: ObjectID assigned (type=%d)", i, pkt->oids[i].type);
             }
         }
-        break;
-    }
-    case 1: {
-        // PacketGameTime (type field = 1 in some contexts)
-        // The host actually sends this as type=3 from timeevent.c — fall through.
-        MP_TRACE(MP_CAT_TIME, "Received PacketGameTime (type=1)");
         break;
     }
     case 3: {
@@ -1023,6 +1018,62 @@ void multiplayer_handle_message(void* msg)
             DateTime host_game_time = { .value = pkt->game_time };
             DateTime host_anim_time = { .value = pkt->anim_time };
             timeevent_sync(&host_game_time, &host_anim_time);
+        }
+        break;
+    }
+    case 4: {
+        // Packet4 — client movement request (walk/run to tile); host executes it
+        Packet4* pkt4 = (Packet4*)msg;
+        if (!tig_net_is_host()) break;
+        {
+            int64_t obj4;
+            sub_4F0690(pkt4->oid, &obj4);
+            if (obj4 == OBJ_HANDLE_NULL) {
+                MP_WARN(MP_CAT_SYNC, "Packet4: object not found for movement request (subtype=%d)", pkt4->subtype);
+                break;
+            }
+            MP_TRACE(MP_CAT_SYNC, "Packet4: executing movement subtype=%d for object", pkt4->subtype);
+            switch (pkt4->subtype) {
+            case 1:  anim_goal_run_to_tile(obj4, pkt4->loc); break;
+            default: anim_goal_move_to_tile(obj4, pkt4->loc); break;
+            }
+        }
+        break;
+    }
+    case 9: {
+        // Packet9 — animation priority/interrupt (host broadcasts, client applies)
+        Packet9* pkt9 = (Packet9*)msg;
+        {
+            int64_t obj9;
+            sub_4F0690(pkt9->field_18.field_8.objid, &obj9);
+            if (obj9 == OBJ_HANDLE_NULL) break;
+            if (tig_net_is_host()) {
+                // Client sent this: apply locally and re-broadcast with real position
+                sub_424070(obj9, pkt9->priority_level, (bool)pkt9->field_48, true);
+                pkt9->loc      = obj_field_int64_get(obj9, OBJ_F_LOCATION);
+                pkt9->art_id   = obj_field_int32_get(obj9, OBJ_F_CURRENT_AID);
+                pkt9->offset_x = obj_field_int32_get(obj9, OBJ_F_OFFSET_X);
+                pkt9->offset_y = obj_field_int32_get(obj9, OBJ_F_OFFSET_Y);
+                tig_net_send_app_all(pkt9, sizeof(*pkt9));
+            } else if (pkt9->loc != 0) {
+                // Host sent this: snap position and apply interrupt
+                sub_43E770(obj9, pkt9->loc, pkt9->offset_x, pkt9->offset_y);
+                sub_424070(obj9, pkt9->priority_level, (bool)pkt9->field_48, true);
+            }
+        }
+        break;
+    }
+    case 10: {
+        // Packet10 — animation end: host broadcasts final object state to clients
+        Packet10* pkt10 = (Packet10*)msg;
+        if (tig_net_is_host()) break;
+        {
+            int64_t obj10;
+            sub_4F0690(pkt10->oid, &obj10);
+            if (obj10 == OBJ_HANDLE_NULL) break;
+            MP_TRACE(MP_CAT_ANIM, "Packet10: snapping object to final position");
+            sub_43E770(obj10, pkt10->loc, pkt10->offset_x, pkt10->offset_y);
+            object_set_current_aid(obj10, pkt10->art_id);
         }
         break;
     }
@@ -1049,21 +1100,50 @@ void multiplayer_handle_message(void* msg)
     }
     case 27: {
         // Packet27 — object location update (position sync)
-        Packet27* pkt = (Packet27*)msg;
-        if (pkt->oid.type == OID_TYPE_NULL) {
-            break;
-        }
-        obj = obj_pool_perm_lookup(pkt->oid);
-        if (obj == OBJ_HANDLE_NULL) {
-            MP_WARN(MP_CAT_SYNC, "Packet27: OID (type=%d) not found — ObjectID mismatch?",
-                    pkt->oid.type);
-            break;
-        }
-        MP_TRACE(MP_CAT_SYNC, "Packet27: updating object location");
-        sub_43E770(obj, pkt->loc, 0, 0);  // Move object to new location
-        // If we are the host, re-broadcast to all other clients
-        if (tig_net_is_host()) {
-            tig_net_send_app_all(pkt, sizeof(*pkt));
+        Packet27* pkt27 = (Packet27*)msg;
+        if (pkt27->oid.type == OID_TYPE_NULL) break;
+        {
+            int64_t obj27 = obj_pool_perm_lookup(pkt27->oid);
+            if (obj27 == OBJ_HANDLE_NULL) {
+                if (tig_net_is_host()) {
+                    // Unknown OID — first packet from a newly connected guest.
+                    // Create a PC placeholder with the guest's exact OID so that
+                    // subsequent lookups (Packet4, Packet9, etc.) all resolve it.
+                    MP_INFO(MP_CAT_SESSION,
+                            "Packet27: unknown OID — creating guest placeholder at loc=%lld",
+                            (long long)pkt27->loc);
+                    PlayerCreateInfo pc_info;
+                    player_create_info_init(&pc_info);
+                    pc_info.flags = PLAYER_CREATE_INFO_OBJ
+                                  | PLAYER_CREATE_INFO_LOC
+                                  | PLAYER_CREATE_INFO_NETWORK;
+                    pc_info.oid = pkt27->oid;
+                    pc_info.loc = pkt27->loc;
+                    if (!player_obj_create_player(&pc_info)) {
+                        MP_ERROR(MP_CAT_SESSION, "Failed to create guest placeholder");
+                        break;
+                    }
+                    obj27 = pc_info.obj;
+                    // Register the guest in the first free player slot (0 = host)
+                    for (int s = 1; s < NUM_PLAYERS; s++) {
+                        if (stru_5E8AD0[s].field_8.type == OID_TYPE_NULL) {
+                            stru_5E8AD0[s].field_8 = pkt27->oid;
+                            MP_INFO(MP_CAT_SESSION, "Guest placeholder assigned to player slot %d", s);
+                            break;
+                        }
+                    }
+                    multiplayer_send_player_list();
+                } else {
+                    MP_WARN(MP_CAT_SYNC, "Packet27: OID (type=%d) not found",
+                            pkt27->oid.type);
+                    break;
+                }
+            }
+            MP_TRACE(MP_CAT_SYNC, "Packet27: updating object location");
+            sub_43E770(obj27, pkt27->loc, 0, 0);
+            if (tig_net_is_host()) {
+                tig_net_send_app_all(pkt27, sizeof(*pkt27));
+            }
         }
         break;
     }
@@ -1168,6 +1248,25 @@ void multiplayer_handle_message(void* msg)
             (stru_5E8AD0[pkt->client_id].flags & ~0xFF00u) | (pkt->flags & 0xFF00u);
         MP_DEBUG(MP_CAT_SYNC, "Packet98: player %d flags updated to 0x%04X",
                  pkt->client_id, pkt->flags & 0xFF00u);
+        break;
+    }
+    case 99: {
+        // Packet99 — host teleports an object; clients apply the position snap
+        Packet99* pkt99 = (Packet99*)msg;
+        if (tig_net_is_host()) break;
+        {
+            int64_t obj99;
+            sub_4F0690(pkt99->oid, &obj99);
+            if (obj99 == OBJ_HANDLE_NULL) {
+                MP_WARN(MP_CAT_SYNC, "Packet99: object not found for teleport");
+                break;
+            }
+            MP_DEBUG(MP_CAT_SYNC, "Packet99: applying host teleport to loc=%lld", (long long)pkt99->location);
+            sub_43E770(obj99, pkt99->location, pkt99->dx, pkt99->dy);
+            if (pkt99->field_30 && player_is_local_pc_obj(obj99)) {
+                location_origin_set(pkt99->location);
+            }
+        }
         break;
     }
     default:
