@@ -37,6 +37,12 @@ typedef enum MainMenuType {
     MM_TYPE_5,
 } MainMenuType;
 
+typedef enum GameMode {
+    GAME_MODE_SINGLE_PLAYER,
+    GAME_MODE_MULTIPLAYER_HOST,
+    GAME_MODE_MULTIPLAYER_JOIN,
+} GameMode;
+
 typedef enum MainMenuWindowType {
     MM_WINDOW_0,
     MM_WINDOW_1,

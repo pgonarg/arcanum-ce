@@ -901,10 +901,14 @@ static MainMenuButtonInfo mainmenu_ui_multiplayer_buttons[] = {
     { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
 };
 
+// Forward declarations for multiplayer functions
+void mainmenu_ui_create_multiplayer(void);
+bool mainmenu_ui_multiplayer_execute(int btn);
+
 static MainMenuWindowInfo mainmenu_ui_multiplayer_window_info = {
     329,
-    NULL,
-    NULL,
+    mainmenu_ui_create_multiplayer,
+    mainmenu_ui_multiplayer_execute,
     0,
     NULL,
     NULL,
@@ -1404,6 +1408,9 @@ static bool mainmenu_ui_auto_equip_items_on_start;
 // 0x64C428
 static bool dword_64C428;
 
+// Game mode tracking
+static GameMode mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+
 // 0x64C42C
 static int dword_64C42C[3];
 
@@ -1439,6 +1446,27 @@ static int64_t qword_64C460;
 
 // 0x64C468
 static int dword_64C468;
+
+void mainmenu_ui_create_multiplayer(void)
+{
+    mainmenu_ui_window_type = MM_WINDOW_MULTIPLAYER;
+    mainmenu_ui_create_window();
+    mainmenu_ui_draw_version();
+}
+
+bool mainmenu_ui_multiplayer_execute(int btn)
+{
+    if (btn == 0) {  // Join Game button
+        mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
+        mainmenu_ui_auto_equip_items_on_start = true;
+        return true;
+    } else if (btn == 1) {  // Host Game button
+        mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
+        mainmenu_ui_auto_equip_items_on_start = true;
+        return true;
+    }
+    return true;
+}
 
 // 0x540930
 bool mainmenu_ui_init(GameInitInfo* init_info)
@@ -1728,6 +1756,12 @@ void sub_5412E0(bool a1)
                 teleport_data.fade_in.color = tig_color_make(0, 0, 0);
                 teleport_do(&teleport_data);
 
+                if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_HOST) {
+                    sub_49CC50();
+                } else if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_JOIN) {
+                    multiplayer_start();
+                }
+
                 gsound_stop_all(0);
 
                 mes_file_entry.num = 6000; // "Please Wait"
@@ -1873,6 +1907,7 @@ void mainmenu_ui_reset(void)
     schematic_ui_close();
     gamelib_reset();
     gameuilib_reset();
+    mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
 }
 
 // 0x541740
