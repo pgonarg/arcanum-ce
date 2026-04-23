@@ -5,6 +5,7 @@
 #include "net/mp_log.h"
 
 #include "game/anim.h"
+#include "game/anim_private.h"
 #include "game/background.h"
 #include "game/combat.h"
 #include "game/critter.h"
@@ -335,6 +336,9 @@ static S5F0DFC* dword_5F0DFC;
 // 0x5F0E00
 static bool dword_5F0E00;
 
+// True once the guest has sent its first Packet27 to announce itself to the host.
+static bool mp_guest_announced;
+
 // 0x5F0E04
 static void (*off_5F0E04)(void);
 
@@ -631,6 +635,7 @@ bool multiplayer_start(void)
     tig_net_on_message_validation(multiplayer_validate_message);
     tig_net_on_network_event(multiplayer_handle_network_event);
     dword_5F0E00 = false;
+    mp_guest_announced = false;
 
     return true;
 }
@@ -651,7 +656,13 @@ bool multiplayer_end(void)
 // 0x49CC50
 void sub_49CC50(void)
 {
+    multiplayer_lock_cnt = 0;
     tig_net_start_server();
+    sub_4A2AE0(0);
+    tig_net_on_message(multiplayer_handle_message);
+    tig_net_on_message_validation(multiplayer_validate_message);
+    tig_net_on_network_event(multiplayer_handle_network_event);
+    dword_5F0E00 = false;
 }
 
 // 0x49CC70
@@ -1018,14 +1029,35 @@ void multiplayer_handle_message(void* msg)
             DateTime host_game_time = { .value = pkt->game_time };
             DateTime host_anim_time = { .value = pkt->anim_time };
             timeevent_sync(&host_game_time, &host_anim_time);
+
+            // On first time-sync, announce our PC's OID and location to the host.
+            // This breaks the chicken-and-egg: the host needs Packet27 to create the
+            // guest placeholder, but per-tile Packet27 only fires during movement.
+            // We retry every Packet3 until the OID is valid (PC handle may be
+            // briefly stale right after teleport_do returns).
+            if (!mp_guest_announced) {
+                int64_t pc = player_get_local_pc_obj();
+                if (pc != OBJ_HANDLE_NULL) {
+                    ObjectID pc_oid = obj_get_id(pc);
+                    MP_DEBUG(MP_CAT_SESSION, "Announcement check: oid.type=%d", (int)pc_oid.type);
+                    if (pc_oid.type != OID_TYPE_NULL) {
+                        mp_guest_announced = true;
+                        MP_INFO(MP_CAT_SESSION, "Announcing local PC to host (oid.type=%d)", (int)pc_oid.type);
+                        mp_send_object_location(pc, obj_field_int64_get(pc, OBJ_F_LOCATION));
+                    } else {
+                        MP_WARN(MP_CAT_SESSION, "PC OID still null — will retry on next time-sync");
+                    }
+                } else {
+                    MP_WARN(MP_CAT_SESSION, "PC handle null — will retry on next time-sync");
+                }
+            }
         }
         break;
     }
     case 4: {
-        // Packet4 — client movement request (walk/run to tile); host executes it
+        // Packet4 — movement goal; host executes+relays, clients animate remote objects.
         Packet4* pkt4 = (Packet4*)msg;
-        if (!tig_net_is_host()) break;
-        {
+        if (tig_net_is_host()) {
             int64_t obj4;
             sub_4F0690(pkt4->oid, &obj4);
             if (obj4 == OBJ_HANDLE_NULL) {
@@ -1037,7 +1069,43 @@ void multiplayer_handle_message(void* msg)
             case 1:  anim_goal_run_to_tile(obj4, pkt4->loc); break;
             default: anim_goal_move_to_tile(obj4, pkt4->loc); break;
             }
+            // Relay to all clients so they animate the object locally
+            tig_net_send_app_all(pkt4, sizeof(*pkt4));
+        } else {
+            // Guest received Packet4: skip own movement (prediction active), animate remote objects
+            int64_t local_pc4 = player_get_local_pc_obj();
+            ObjectID local_oid4 = obj_get_id(local_pc4);
+            if (local_pc4 != OBJ_HANDLE_NULL
+                && local_oid4.type != OID_TYPE_NULL
+                && objid_is_equal(pkt4->oid, local_oid4)) {
+                break;
+            }
+            int64_t obj4;
+            sub_4F0690(pkt4->oid, &obj4);
+            if (obj4 == OBJ_HANDLE_NULL) break;
+            MP_TRACE(MP_CAT_SYNC, "Packet4: guest animating remote object (subtype=%d)", pkt4->subtype);
+            // Interrupt existing goal so a different destination takes effect immediately.
+            // Without this the existing-goal path only updates the target on the host,
+            // causing the remote object to finish at the old tile on the guest.
+            {
+                AnimID existing_id4;
+                AnimRunInfo* existing_ri4;
+                if (anim_is_current_goal_type(obj4, AG_RUN_TO_TILE, &existing_id4)
+                    && anim_id_to_run_info(&existing_id4, &existing_ri4)
+                    && existing_ri4->goals[0].params[AGDATA_TARGET_TILE].loc != pkt4->loc) {
+                    sub_424070(obj4, 3, false, true);
+                }
+            }
+            switch (pkt4->subtype) {
+            case 1:  anim_goal_run_to_tile(obj4, pkt4->loc); break;
+            default: anim_goal_move_to_tile(obj4, pkt4->loc); break;
+            }
         }
+        break;
+    }
+    case 8: {
+        // Packet8 — path recalculation update (host only sends; client has no action).
+        // The subsequent Packet9/99/10 provide authoritative position — ignore silently.
         break;
     }
     case 9: {
@@ -1056,7 +1124,9 @@ void multiplayer_handle_message(void* msg)
                 pkt9->offset_y = obj_field_int32_get(obj9, OBJ_F_OFFSET_Y);
                 tig_net_send_app_all(pkt9, sizeof(*pkt9));
             } else if (pkt9->loc != 0) {
-                // Host sent this: snap position and apply interrupt
+                // PCs (local and remote) manage goals via Packet4; Packet9 interrupt
+                // would cancel a brand-new goal added by the preceding Packet4.
+                if (player_is_pc_obj(obj9)) break;
                 sub_43E770(obj9, pkt9->loc, pkt9->offset_x, pkt9->offset_y);
                 sub_424070(obj9, pkt9->priority_level, (bool)pkt9->field_48, true);
             }
@@ -1071,8 +1141,11 @@ void multiplayer_handle_message(void* msg)
             int64_t obj10;
             sub_4F0690(pkt10->oid, &obj10);
             if (obj10 == OBJ_HANDLE_NULL) break;
-            MP_TRACE(MP_CAT_ANIM, "Packet10: snapping object to final position");
-            sub_43E770(obj10, pkt10->loc, pkt10->offset_x, pkt10->offset_y);
+            // PC objects (local and remote) walk themselves via Packet4 goals.
+            if (player_is_pc_obj(obj10)) break;
+            // Remote NPC: smooth move to final position.
+            MP_TRACE(MP_CAT_ANIM, "Packet10: smooth move for remote object to loc=%lld", (long long)pkt10->loc);
+            anim_goal_run_to_tile(obj10, pkt10->loc);
             object_set_current_aid(obj10, pkt10->art_id);
         }
         break;
@@ -1101,7 +1174,11 @@ void multiplayer_handle_message(void* msg)
     case 27: {
         // Packet27 — object location update (position sync)
         Packet27* pkt27 = (Packet27*)msg;
-        if (pkt27->oid.type == OID_TYPE_NULL) break;
+        MP_DEBUG(MP_CAT_SYNC, "Packet27: oid.type=%d loc=%lld", (int)pkt27->oid.type, (long long)pkt27->loc);
+        if (pkt27->oid.type == OID_TYPE_NULL) {
+            MP_WARN(MP_CAT_SYNC, "Packet27: null OID — dropping");
+            break;
+        }
         {
             int64_t obj27 = obj_pool_perm_lookup(pkt27->oid);
             if (obj27 == OBJ_HANDLE_NULL) {
@@ -1124,6 +1201,8 @@ void multiplayer_handle_message(void* msg)
                         break;
                     }
                     obj27 = pc_info.obj;
+                    // Clear OF_OFF so critter_is_active() returns true and movement goals can be added.
+                    object_flags_unset(obj27, OF_OFF);
                     // Register the guest in the first free player slot (0 = host)
                     for (int s = 1; s < NUM_PLAYERS; s++) {
                         if (stru_5E8AD0[s].field_8.type == OID_TYPE_NULL) {
@@ -1139,10 +1218,18 @@ void multiplayer_handle_message(void* msg)
                     break;
                 }
             }
-            MP_TRACE(MP_CAT_SYNC, "Packet27: updating object location");
-            sub_43E770(obj27, pkt27->loc, 0, 0);
             if (tig_net_is_host()) {
+                // Host: snap to position and relay to all clients
+                MP_TRACE(MP_CAT_SYNC, "Packet27: host snapping and relaying loc=%lld", (long long)pkt27->loc);
+                sub_43E770(obj27, pkt27->loc, 0, 0);
                 tig_net_send_app_all(pkt27, sizeof(*pkt27));
+            } else if (obj27 == player_get_local_pc_obj()) {
+                // Guest's own PC: ignore host relay — prediction is already running
+                MP_TRACE(MP_CAT_SYNC, "Packet27: skipping snap for local PC (prediction active)");
+            } else {
+                // Remote object on guest: smooth movement instead of snap
+                MP_TRACE(MP_CAT_SYNC, "Packet27: smooth move for remote object to loc=%lld", (long long)pkt27->loc);
+                anim_goal_run_to_tile(obj27, pkt27->loc);
             }
         }
         break;
@@ -1251,20 +1338,34 @@ void multiplayer_handle_message(void* msg)
         break;
     }
     case 99: {
-        // Packet99 — host teleports an object; clients apply the position snap
+        // Packet99 — host position update; field_30=true means real teleport, false means movement correction
         Packet99* pkt99 = (Packet99*)msg;
         if (tig_net_is_host()) break;
         {
             int64_t obj99;
             sub_4F0690(pkt99->oid, &obj99);
             if (obj99 == OBJ_HANDLE_NULL) {
-                MP_WARN(MP_CAT_SYNC, "Packet99: object not found for teleport");
+                MP_WARN(MP_CAT_SYNC, "Packet99: object not found");
                 break;
             }
-            MP_DEBUG(MP_CAT_SYNC, "Packet99: applying host teleport to loc=%lld", (long long)pkt99->location);
-            sub_43E770(obj99, pkt99->location, pkt99->dx, pkt99->dy);
-            if (pkt99->field_30 && player_is_local_pc_obj(obj99)) {
-                location_origin_set(pkt99->location);
+            // Re-resolve the local PC handle (player_is_local_pc_obj uses a stale handle)
+            int64_t local_pc99 = player_get_local_pc_obj();
+            bool is_local_pc99 = (local_pc99 != OBJ_HANDLE_NULL && obj99 == local_pc99);
+            if (pkt99->field_30) {
+                // Real teleport: snap position and scroll view if local PC
+                MP_DEBUG(MP_CAT_SYNC, "Packet99: real teleport to loc=%lld (local_pc=%d)",
+                         (long long)pkt99->location, is_local_pc99);
+                sub_43E770(obj99, pkt99->location, pkt99->dx, pkt99->dy);
+                if (is_local_pc99) {
+                    location_origin_set(pkt99->location);
+                }
+            } else {
+                // Movement correction: skip for local PC (prediction active), smooth for remote
+                MP_DEBUG(MP_CAT_SYNC, "Packet99: movement correction to loc=%lld (local_pc=%d)",
+                         (long long)pkt99->location, is_local_pc99);
+                if (!is_local_pc99) {
+                    anim_goal_run_to_tile(obj99, pkt99->location);
+                }
             }
         }
         break;

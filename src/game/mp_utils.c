@@ -645,6 +645,9 @@ void mp_send_object_location(int64_t obj, int64_t loc)
     pkt.type = 27;
     pkt.padding_4 = 0;
     pkt.oid = obj_get_id(obj);
+    if (pkt.oid.type == OID_TYPE_NULL) {
+        return;
+    }
     pkt.loc = loc;
     tig_net_send_app_all(&pkt, sizeof(pkt));
 }
