@@ -896,7 +896,7 @@ static MainMenuWindowInfo mainmenu_ui_single_player_window_info = {
 
 // Multiplayer window buttons
 static MainMenuButtonInfo mainmenu_ui_multiplayer_buttons[] = {
-    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_MULTIPLAYER_JOIN_ADDRESS, 0, 0, { 0 }, -1 },
+    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
     { 410, 193, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
     { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
 };
@@ -1506,6 +1506,8 @@ bool mainmenu_ui_multiplayer_execute(int btn)
     if (btn == 0) {  // Join Game button
         mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
         mainmenu_ui_auto_equip_items_on_start = true;
+        strncpy(mainmenu_ui_network_address, "localhost", sizeof(mainmenu_ui_network_address) - 1);
+        mainmenu_ui_network_address[sizeof(mainmenu_ui_network_address) - 1] = '\0';
         return true;
     } else if (btn == 1) {  // Host Game button
         mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
