@@ -1503,17 +1503,21 @@ void mainmenu_ui_create_multiplayer(void)
 
 bool mainmenu_ui_multiplayer_execute(int btn)
 {
+    tig_debug_printf("[Multiplayer Execute] Button %d clicked\n", btn);
     if (btn == 0) {  // Join Game button
+        tig_debug_printf("[Multiplayer Execute] Setting mode to JOIN\n");
         mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
         mainmenu_ui_auto_equip_items_on_start = true;
         strncpy(mainmenu_ui_network_address, "localhost", sizeof(mainmenu_ui_network_address) - 1);
         mainmenu_ui_network_address[sizeof(mainmenu_ui_network_address) - 1] = '\0';
         return true;
     } else if (btn == 1) {  // Host Game button
+        tig_debug_printf("[Multiplayer Execute] Setting mode to HOST\n");
         mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
         mainmenu_ui_auto_equip_items_on_start = true;
         return true;
     }
+    tig_debug_printf("[Multiplayer Execute] Button %d not handled\n", btn);
     return true;
 }
 
@@ -1827,10 +1831,15 @@ void sub_5412E0(bool a1)
                 teleport_data.fade_in.color = tig_color_make(0, 0, 0);
                 teleport_do(&teleport_data);
 
+                tig_debug_printf("[GameMode Debug] mainmenu_ui_game_mode = %d (0=single, 1=host, 2=join)\n", mainmenu_ui_game_mode);
                 if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_HOST) {
+                    tig_debug_printf("[GameMode Debug] Starting as HOST\n");
                     sub_49CC50();
                 } else if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_JOIN) {
+                    tig_debug_printf("[GameMode Debug] Starting as JOIN\n");
                     multiplayer_start();
+                } else {
+                    tig_debug_printf("[GameMode Debug] Starting as SINGLE PLAYER\n");
                 }
 
                 gsound_stop_all(0);
