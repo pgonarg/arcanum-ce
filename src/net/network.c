@@ -134,11 +134,13 @@ bool net_start_server(void)
     struct sockaddr_in server_addr;
 
     if (!net_init()) {
+        printf("[NET] Failed to initialize network\n");
         return false;
     }
 
     server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server_socket == INVALID_SOCKET_VAL) {
+        printf("[NET] Failed to create server socket\n");
         return false;
     }
 
@@ -150,17 +152,20 @@ bool net_start_server(void)
     server_addr.sin_port = htons(NET_PORT);
 
     if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR_VAL) {
+        printf("[NET] Failed to bind server socket to port %d\n", NET_PORT);
         closesocket_compat(server_socket);
         server_socket = INVALID_SOCKET_VAL;
         return false;
     }
 
     if (listen(server_socket, 1) == SOCKET_ERROR_VAL) {
+        printf("[NET] Failed to listen on server socket\n");
         closesocket_compat(server_socket);
         server_socket = INVALID_SOCKET_VAL;
         return false;
     }
 
+    printf("[NET] SERVER: Listening on localhost:%d\n", NET_PORT);
     is_host = true;
     is_active = true;
     connected_client = INVALID_SOCKET_VAL;
@@ -188,13 +193,18 @@ void net_stop_server(void)
 bool net_start_client(const char* host)
 {
     struct sockaddr_in server_addr;
+    const char* target_host = (host != NULL) ? host : "127.0.0.1";
 
     if (!net_init()) {
+        printf("[NET] Failed to initialize network\n");
         return false;
     }
 
+    printf("[NET] CLIENT: Attempting to connect to %s:%d\n", target_host, NET_PORT);
+
     client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (client_socket == INVALID_SOCKET_VAL) {
+        printf("[NET] Failed to create client socket\n");
         return false;
     }
 
@@ -202,7 +212,7 @@ bool net_start_client(const char* host)
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr(host != NULL ? host : "127.0.0.1");
+    server_addr.sin_addr.s_addr = inet_addr(target_host);
     server_addr.sin_port = htons(NET_PORT);
 
     // Non-blocking connect will return EINPROGRESS/WSAEWOULDBLOCK
@@ -210,6 +220,7 @@ bool net_start_client(const char* host)
 #ifdef _WIN32
         int err = WSAGetLastError();
         if (err != WSAEWOULDBLOCK && err != WSAEINPROGRESS) {
+            printf("[NET] Connect failed with error %d\n", err);
             closesocket_compat(client_socket);
             client_socket = INVALID_SOCKET_VAL;
             return false;
@@ -217,6 +228,7 @@ bool net_start_client(const char* host)
 #else
         int err = errno;
         if (err != EINPROGRESS && err != EWOULDBLOCK) {
+            printf("[NET] Connect failed with error %d\n", err);
             closesocket_compat(client_socket);
             client_socket = INVALID_SOCKET_VAL;
             return false;
@@ -224,6 +236,7 @@ bool net_start_client(const char* host)
 #endif
     }
 
+    printf("[NET] CLIENT: Connection initiated\n");
     is_host = false;
     is_active = true;
     return true;
@@ -273,11 +286,14 @@ void net_send_message(void* msg, int size)
         if (connected_client != INVALID_SOCKET_VAL) {
             sent = send(connected_client, (const char*)buffer, total_size, 0);
             if (sent == SOCKET_ERROR_VAL) {
+                printf("[NET] SERVER: Send failed, client disconnected\n");
                 closesocket_compat(connected_client);
                 connected_client = INVALID_SOCKET_VAL;
                 if (event_handler != NULL) {
                     event_handler(NET_EVENT_CLIENT_DISCONNECTED);
                 }
+            } else {
+                printf("[NET] SERVER: Sent %d bytes\n", sent);
             }
         }
     } else {
@@ -285,12 +301,15 @@ void net_send_message(void* msg, int size)
         if (client_socket != INVALID_SOCKET_VAL) {
             sent = send(client_socket, (const char*)buffer, total_size, 0);
             if (sent == SOCKET_ERROR_VAL) {
+                printf("[NET] CLIENT: Send failed, connection lost\n");
                 closesocket_compat(client_socket);
                 client_socket = INVALID_SOCKET_VAL;
                 is_active = false;
                 if (event_handler != NULL) {
                     event_handler(NET_EVENT_CONNECTION_LOST);
                 }
+            } else {
+                printf("[NET] CLIENT: Sent %d bytes\n", sent);
             }
         }
     }
@@ -355,8 +374,10 @@ void net_poll(void)
                 listen_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
                 if (listen_socket != INVALID_SOCKET_VAL) {
                     if (connected_client != INVALID_SOCKET_VAL) {
+                        printf("[NET] SERVER: Rejected second client connection\n");
                         closesocket_compat(listen_socket);
                     } else {
+                        printf("[NET] SERVER: Client connected from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
                         connected_client = listen_socket;
                         set_nonblocking(connected_client);
                         if (event_handler != NULL) {
@@ -373,8 +394,10 @@ void net_poll(void)
                     msg_length = *(int*)buffer;
                     if (msg_length > 0 && msg_length <= received - 4 && msg_length <= NET_MAX_MESSAGE_SIZE) {
                         queue_enqueue(buffer + 4, msg_length);
+                        printf("[NET] SERVER: Received message (%d bytes)\n", msg_length);
                     }
                 } else if (received == 0 || received == SOCKET_ERROR_VAL) {
+                    printf("[NET] SERVER: Client disconnected\n");
                     closesocket_compat(connected_client);
                     connected_client = INVALID_SOCKET_VAL;
                     if (event_handler != NULL) {
@@ -399,8 +422,10 @@ void net_poll(void)
                 msg_length = *(int*)buffer;
                 if (msg_length > 0 && msg_length <= received - 4 && msg_length <= NET_MAX_MESSAGE_SIZE) {
                     queue_enqueue(buffer + 4, msg_length);
+                    printf("[NET] CLIENT: Received message (%d bytes)\n", msg_length);
                 }
             } else if (received == 0 || received == SOCKET_ERROR_VAL) {
+                printf("[NET] CLIENT: Connection lost\n");
                 closesocket_compat(client_socket);
                 client_socket = INVALID_SOCKET_VAL;
                 is_active = false;
