@@ -1028,6 +1028,12 @@ void multiplayer_handle_message(void* msg)
         break;
     case 27:  // Packet27 (object location)
         pkt27 = (Packet27*)msg;
+        if (pkt27->oid.type != OID_TYPE_NULL) {
+            int64_t obj = obj_pool_perm_lookup(pkt27->oid);
+            if (obj != OBJ_HANDLE_NULL) {
+                sub_4A1F30(obj, pkt27->loc, 0, 0);
+            }
+        }
         break;
     case 28:  // Packet28 (inventory item)
         pkt28 = (Packet28*)msg;

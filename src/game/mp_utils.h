@@ -694,5 +694,6 @@ void mp_gsound_play_sfx_on_obj(int sound_id, int loops, int64_t obj);
 void mp_gsound_play_scheme(int music_scheme_idx, int ambient_scheme_idx);
 void sub_4F0640(int64_t obj, ObjectID* oid_ptr);
 void sub_4F0690(ObjectID oid, int64_t* obj_ptr);
+void mp_send_object_location(int64_t obj, int64_t loc);
 
 #endif /* ARCANUM_GAME_MP_UTILS_H_ */

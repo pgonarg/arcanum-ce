@@ -630,3 +630,19 @@ void sub_4F0690(ObjectID oid, int64_t* obj_ptr)
         *obj_ptr = OBJ_HANDLE_NULL;
     }
 }
+
+// Send object location update to other players
+void mp_send_object_location(int64_t obj, int64_t loc)
+{
+    Packet27 pkt;
+
+    if (!tig_net_is_active() || tig_net_is_host()) {
+        return;
+    }
+
+    pkt.type = 27;
+    pkt.padding_4 = 0;
+    pkt.oid = obj_get_id(obj);
+    pkt.loc = loc;
+    tig_net_send_app_all(&pkt, sizeof(pkt));
+}
