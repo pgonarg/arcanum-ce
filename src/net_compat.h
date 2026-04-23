@@ -16,7 +16,7 @@
 #define tig_net_is_active() net_is_active()
 #define tig_net_is_host() net_is_host()
 #define tig_net_send_app_all(msg, size) net_send_message(msg, size)
-#define tig_net_start_client() (net_start_client("localhost") ? TIG_OK : 1)
+#define tig_net_start_client() (net_start_client("127.0.0.1") ? TIG_OK : 1)
 #define tig_net_on_message(handler) net_set_message_handler(handler)
 #define tig_net_on_network_event(handler) net_set_event_handler(handler)
 #define tig_net_start_server() net_start_server()
