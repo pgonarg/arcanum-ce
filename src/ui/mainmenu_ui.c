@@ -1,6 +1,7 @@
 #include "ui/mainmenu_ui.h"
 
 #include <stdio.h>
+#include <stdarg.h>
 
 #include "game/area.h"
 #include "game/background.h"
@@ -903,15 +904,15 @@ static MainMenuButtonInfo mainmenu_ui_multiplayer_buttons[] = {
 
 // Forward declarations for multiplayer functions
 void mainmenu_ui_create_multiplayer(void);
-bool mainmenu_ui_multiplayer_execute(int btn);
+bool mainmenu_ui_multiplayer_button_released(tig_button_handle_t button_handle);
 
 static MainMenuWindowInfo mainmenu_ui_multiplayer_window_info = {
     329,
     mainmenu_ui_create_multiplayer,
-    mainmenu_ui_multiplayer_execute,
+    NULL,
     0,
     NULL,
-    NULL,
+    mainmenu_ui_multiplayer_button_released,
     NULL,
     NULL,
     NULL,
@@ -1494,31 +1495,53 @@ static int64_t qword_64C460;
 // 0x64C468
 static int dword_64C468;
 
+void menu_log(const char* format, ...)
+{
+    FILE* f = fopen("menu_debug.log", "a");
+    if (!f) return;
+    va_list args;
+    va_start(args, format);
+    vfprintf(f, format, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+    fclose(f);
+}
+
 void mainmenu_ui_create_multiplayer(void)
 {
+    menu_log("[MULTIPLAYER INIT] Multiplayer window being created!");
     mainmenu_ui_window_type = MM_WINDOW_MULTIPLAYER;
     mainmenu_ui_create_window();
     mainmenu_ui_draw_version();
 }
 
-bool mainmenu_ui_multiplayer_execute(int btn)
+// Button release handler for multiplayer menu
+bool mainmenu_ui_multiplayer_button_released(tig_button_handle_t button_handle)
 {
-    tig_debug_printf("[Multiplayer Execute] Button %d clicked\n", btn);
-    if (btn == 0) {  // Join Game button
-        tig_debug_printf("[Multiplayer Execute] Setting mode to JOIN\n");
-        mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
-        mainmenu_ui_auto_equip_items_on_start = true;
-        strncpy(mainmenu_ui_network_address, "localhost", sizeof(mainmenu_ui_network_address) - 1);
-        mainmenu_ui_network_address[sizeof(mainmenu_ui_network_address) - 1] = '\0';
-        return true;
-    } else if (btn == 1) {  // Host Game button
-        tig_debug_printf("[Multiplayer Execute] Setting mode to HOST\n");
-        mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
-        mainmenu_ui_auto_equip_items_on_start = true;
-        return true;
+    MainMenuButtonInfo* buttons = mainmenu_ui_multiplayer_buttons;
+    int num_buttons = SDL_arraysize(mainmenu_ui_multiplayer_buttons);
+
+    // Find which button was pressed
+    for (int i = 0; i < num_buttons; i++) {
+        if (buttons[i].button_handle == button_handle) {
+            menu_log("[Multiplayer Button Released] Button index %d", i);
+
+            if (i == 0) {  // Join Game button
+                menu_log("[Multiplayer Button Released] Setting mode to JOIN");
+                mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
+                mainmenu_ui_auto_equip_items_on_start = true;
+                return false; // Allow default handling
+            } else if (i == 1) {  // Host Game button
+                menu_log("[Multiplayer Button Released] Setting mode to HOST");
+                mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
+                mainmenu_ui_auto_equip_items_on_start = true;
+                return false; // Allow default handling
+            }
+            break;
+        }
     }
-    tig_debug_printf("[Multiplayer Execute] Button %d not handled\n", btn);
-    return true;
+    return false;  // Allow default handling
 }
 
 void mainmenu_ui_create_multiplayer_join_address(void)
@@ -1831,15 +1854,15 @@ void sub_5412E0(bool a1)
                 teleport_data.fade_in.color = tig_color_make(0, 0, 0);
                 teleport_do(&teleport_data);
 
-                tig_debug_printf("[GameMode Debug] mainmenu_ui_game_mode = %d (0=single, 1=host, 2=join)\n", mainmenu_ui_game_mode);
+                menu_log("[GameMode Debug] mainmenu_ui_game_mode = %d (0=single, 1=host, 2=join)", mainmenu_ui_game_mode);
                 if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_HOST) {
-                    tig_debug_printf("[GameMode Debug] Starting as HOST\n");
+                    menu_log("[GameMode Debug] Starting as HOST");
                     sub_49CC50();
                 } else if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_JOIN) {
-                    tig_debug_printf("[GameMode Debug] Starting as JOIN\n");
+                    menu_log("[GameMode Debug] Starting as JOIN");
                     multiplayer_start();
                 } else {
-                    tig_debug_printf("[GameMode Debug] Starting as SINGLE PLAYER\n");
+                    menu_log("[GameMode Debug] Starting as SINGLE PLAYER");
                 }
 
                 gsound_stop_all(0);
