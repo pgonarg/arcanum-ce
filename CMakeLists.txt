@@ -315,6 +315,8 @@ set(SRCS
     "src/ui/written_ui.h"
     "src/net/network.h"
     "src/net/network.c"
+    "src/net/mp_log.h"
+    "src/net/mp_log.c"
     "src/net_compat.h"
     "src/main.c"
 )

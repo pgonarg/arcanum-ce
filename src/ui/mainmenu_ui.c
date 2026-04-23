@@ -1,7 +1,10 @@
 #include "ui/mainmenu_ui.h"
 
 #include <stdio.h>
-#include <stdarg.h>
+#include <string.h>
+
+#include "net/mp_log.h"
+#include "net/network.h"
 
 #include "game/area.h"
 #include "game/background.h"
@@ -952,7 +955,7 @@ static MainMenuButtonInfo mainmenu_ui_multiplayer_join_address_buttons[] = {
 static MainMenuWindowInfo mainmenu_ui_multiplayer_join_address_window_info = {
     329,
     mainmenu_ui_create_multiplayer_join_address,
-    mainmenu_ui_multiplayer_join_address_execute,
+    NULL,
     0,
     NULL,
     NULL,
@@ -970,7 +973,7 @@ static MainMenuWindowInfo mainmenu_ui_multiplayer_join_address_window_info = {
         { -1, 0, 0 },
     },
     NULL,
-    NULL,
+    mainmenu_ui_multiplayer_join_address_execute,
     { 0 },
     NULL,
     { 0 },
@@ -1495,22 +1498,10 @@ static int64_t qword_64C460;
 // 0x64C468
 static int dword_64C468;
 
-void menu_log(const char* format, ...)
-{
-    FILE* f = fopen("menu_debug.log", "a");
-    if (!f) return;
-    va_list args;
-    va_start(args, format);
-    vfprintf(f, format, args);
-    va_end(args);
-    fprintf(f, "\n");
-    fflush(f);
-    fclose(f);
-}
 
 void mainmenu_ui_create_multiplayer(void)
 {
-    menu_log("[MULTIPLAYER INIT] Multiplayer window being created!");
+    MP_INFO(MP_CAT_UI, "Multiplayer window opened");
     mainmenu_ui_window_type = MM_WINDOW_MULTIPLAYER;
     mainmenu_ui_create_window();
     mainmenu_ui_draw_version();
@@ -1525,23 +1516,19 @@ bool mainmenu_ui_multiplayer_button_released(tig_button_handle_t button_handle)
     // Find which button was pressed
     for (int i = 0; i < num_buttons; i++) {
         if (buttons[i].button_handle == button_handle) {
-            menu_log("[Multiplayer Button Released] Button index %d", i);
-
             if (i == 0) {  // Join Game button
-                menu_log("[Multiplayer Button Released] Setting mode to JOIN");
+                MP_INFO(MP_CAT_UI, "Multiplayer: user selected JOIN GAME");
                 mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
                 mainmenu_ui_auto_equip_items_on_start = true;
-                return false; // Allow default handling
             } else if (i == 1) {  // Host Game button
-                menu_log("[Multiplayer Button Released] Setting mode to HOST");
+                MP_INFO(MP_CAT_UI, "Multiplayer: user selected HOST GAME");
                 mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
                 mainmenu_ui_auto_equip_items_on_start = true;
-                return false; // Allow default handling
             }
             break;
         }
     }
-    return false;  // Allow default handling
+    return false;  // Allow default handling (window transition)
 }
 
 void mainmenu_ui_create_multiplayer_join_address(void)
@@ -1563,6 +1550,14 @@ void mainmenu_ui_create_multiplayer_join_address(void)
 
 bool mainmenu_ui_multiplayer_join_address_execute(int btn)
 {
+    // btn == 0 is the Connect button; copy the entered address into the
+    // network layer's join address before character selection proceeds.
+    if (btn == 0 && mainmenu_ui_network_address[0] != '\0') {
+        strncpy(g_mp_join_address, mainmenu_ui_network_address,
+                sizeof(g_mp_join_address) - 1);
+        g_mp_join_address[sizeof(g_mp_join_address) - 1] = '\0';
+        MP_INFO(MP_CAT_UI, "Join address set to: %s", g_mp_join_address);
+    }
     return true;
 }
 
@@ -1854,15 +1849,24 @@ void sub_5412E0(bool a1)
                 teleport_data.fade_in.color = tig_color_make(0, 0, 0);
                 teleport_do(&teleport_data);
 
-                menu_log("[GameMode Debug] mainmenu_ui_game_mode = %d (0=single, 1=host, 2=join)", mainmenu_ui_game_mode);
+                MP_INFO(MP_CAT_SESSION, "Game starting: mode=%d (0=single 1=host 2=join)",
+                        (int)mainmenu_ui_game_mode);
                 if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_HOST) {
-                    menu_log("[GameMode Debug] Starting as HOST");
+                    MP_INFO(MP_CAT_SESSION, "Starting server on port %d", NET_PORT);
                     sub_49CC50();
+                    if (!tig_net_is_active()) {
+                        MP_ERROR(MP_CAT_SESSION, "Failed to start server — aborting multiplayer");
+                        mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+                    }
                 } else if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_JOIN) {
-                    menu_log("[GameMode Debug] Starting as JOIN");
-                    multiplayer_start();
+                    MP_INFO(MP_CAT_SESSION, "Connecting to %s:%d", g_mp_join_address, NET_PORT);
+                    if (!multiplayer_start()) {
+                        MP_ERROR(MP_CAT_SESSION, "Failed to connect to %s — aborting multiplayer",
+                                 g_mp_join_address);
+                        mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+                    }
                 } else {
-                    menu_log("[GameMode Debug] Starting as SINGLE PLAYER");
+                    MP_INFO(MP_CAT_SESSION, "Starting single player");
                 }
 
                 gsound_stop_all(0);

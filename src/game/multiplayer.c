@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 
+#include "net/mp_log.h"
+
 #include "game/anim.h"
 #include "game/background.h"
 #include "game/combat.h"
@@ -206,7 +208,7 @@ static bool sub_4A1F60(int player, int64_t* obj_ptr);
 static void multiplayer_send_player_list(void);
 static bool multiplayer_validate_message(void* msg);
 static void sub_4A2040(int a1);
-static bool multiplayer_handle_network_event(int type, int client_id, void* data, int size);
+static void multiplayer_handle_network_event(int type, int client_id);
 static void sub_4A2A30(void);
 static void multiplayer_notify_player_lagging(int64_t obj);
 static void multiplayer_notify_player_recovered(int64_t obj);
@@ -364,6 +366,9 @@ bool multiplayer_init(GameInitInfo* init_info)
 
     (void)init_info;
 
+    mp_log_init();
+    MP_INFO(MP_CAT_SESSION, "Multiplayer module initializing");
+
     if (tig_file_exists("Players", &file_info)) {
         if ((file_info.attributes & TIG_FILE_ATTRIBUTE_SUBDIR) == 0) {
             tig_debug_printf("MP: init: ERROR: players folder (%s) could not be made (already a file).\n", "Players");
@@ -383,9 +388,7 @@ bool multiplayer_init(GameInitInfo* init_info)
         return false;
     }
 
-    if (!tig_net_local_server_set_description("Description")) {
-        return false;
-    }
+    tig_net_local_server_set_description("Description");
 
     for (index = 0; index < NUM_PLAYERS; index++) {
         sub_49CB80(&(stru_5E8AD0[index]));
@@ -431,6 +434,9 @@ void multiplayer_exit(void)
     if (dword_5F0DE4) {
         FREE(dword_5F0DE4);
     }
+
+    MP_INFO(MP_CAT_SESSION, "Multiplayer module exiting");
+    mp_log_shutdown();
 }
 
 // 0x49C820
@@ -978,23 +984,7 @@ bool multiplayer_map_open_by_name(const char* name)
 void multiplayer_handle_message(void* msg)
 {
     int type;
-    PacketGamePlayerList* pkt0;
-    PacketGameTime* pkt1;
-    Packet4* pkt4;
-    Packet5* pkt5;
-    Packet6* pkt6;
-    Packet7* pkt7;
-    Packet8* pkt8;
-    Packet9* pkt9;
-    Packet10* pkt10;
-    PacketCombatModeSet* pkt26;
-    Packet27* pkt27;
-    Packet28* pkt28;
-    Packet29* pkt29;
-    Packet46* pkt46;
-    Packet64* pkt64;
-    PacketPartyUpdate* pkt71;
-    PacketObjectDestroy* pkt72;
+    int64_t obj;
 
     if (msg == NULL) {
         return;
@@ -1003,78 +993,196 @@ void multiplayer_handle_message(void* msg)
     type = *(int*)msg;
 
     switch (type) {
-    case 0:  // PacketGamePlayerList
-        pkt0 = (PacketGamePlayerList*)msg;
-        break;
-    case 1:  // PacketGameTime
-        pkt1 = (PacketGameTime*)msg;
-        break;
-    case 4:  // Packet4 (object event)
-        pkt4 = (Packet4*)msg;
-        break;
-    case 5:  // Packet5 (anim goal)
-        pkt5 = (Packet5*)msg;
-        break;
-    case 6:  // Packet6 (spell/combat)
-        pkt6 = (Packet6*)msg;
-        break;
-    case 7:  // Packet7 (anim goal restart)
-        pkt7 = (Packet7*)msg;
-        break;
-    case 8:  // Packet8 (modify goal)
-        pkt8 = (Packet8*)msg;
-        break;
-    case 9:  // Packet9 (follower)
-        pkt9 = (Packet9*)msg;
-        break;
-    case 10:  // Packet10 (inventory slot)
-        pkt10 = (Packet10*)msg;
-        break;
-    case 26:  // PacketCombatModeSet
-        pkt26 = (PacketCombatModeSet*)msg;
-        break;
-    case 27:  // Packet27 (object location)
-        pkt27 = (Packet27*)msg;
-        if (pkt27->oid.type != OID_TYPE_NULL) {
-            int64_t obj = obj_pool_perm_lookup(pkt27->oid);
-            if (obj != OBJ_HANDLE_NULL) {
-                sub_4A1F30(obj, pkt27->loc, 0, 0);
-            } else {
-                // DEBUG: Log unknown object - indicates ObjectID mismatch between host/client
-                tig_debug_printf("MP: Packet27 for unknown ObjectID (type=%d, id=%d)\n",
-                                pkt27->oid.type, pkt27->oid.id);
+    case 0: {
+        // PacketGamePlayerList — host broadcasts all player ObjectIDs on join
+        PacketGamePlayerList* pkt = (PacketGamePlayerList*)msg;
+        MP_INFO(MP_CAT_SESSION, "Received player list from host");
+        for (int i = 0; i < NUM_PLAYERS; i++) {
+            if (pkt->oids[i].type != OID_TYPE_NULL) {
+                stru_5E8AD0[i].field_8 = pkt->oids[i];
+                MP_DEBUG(MP_CAT_SESSION, "  Slot %d: ObjectID assigned (type=%d)", i, pkt->oids[i].type);
             }
         }
         break;
-    case 28:  // Packet28 (inventory item)
-        pkt28 = (Packet28*)msg;
+    }
+    case 1: {
+        // PacketGameTime (type field = 1 in some contexts)
+        // The host actually sends this as type=3 from timeevent.c — fall through.
+        MP_TRACE(MP_CAT_TIME, "Received PacketGameTime (type=1)");
         break;
-    case 29:  // Packet29
-        pkt29 = (Packet29*)msg;
+    }
+    case 3: {
+        // PacketGameTime — host broadcasts game clock every ~950ms
+        PacketGameTime* pkt = (PacketGameTime*)msg;
+        MP_DEBUG(MP_CAT_TIME, "Received game time from host: game=%llu anim=%llu",
+                 (unsigned long long)pkt->game_time,
+                 (unsigned long long)pkt->anim_time);
+        if (!tig_net_is_host()) {
+            // timeevent_sync() advances local clocks to match host if behind,
+            // and resets the loading debt counter so the client doesn't stall.
+            DateTime host_game_time = { .value = pkt->game_time };
+            DateTime host_anim_time = { .value = pkt->anim_time };
+            timeevent_sync(&host_game_time, &host_anim_time);
+        }
         break;
-    case 46:  // Packet46
-        pkt46 = (Packet46*)msg;
+    }
+    case 26: {
+        // Packet26 — client requesting an item drop (non-host sends to host)
+        // Only the host processes this; non-hosts only send it.
+        Packet26* pkt = (Packet26*)msg;
+        if (!tig_net_is_host()) {
+            break; // Clients don't process item drop requests
+        }
+        if (pkt->oid.type == OID_TYPE_NULL) {
+            MP_WARN(MP_CAT_ITEM, "Packet26: null item OID in drop request");
+            break;
+        }
+        obj = obj_pool_perm_lookup(pkt->oid);
+        if (obj == OBJ_HANDLE_NULL) {
+            MP_WARN(MP_CAT_ITEM, "Packet26: item OID not found for drop request");
+            break;
+        }
+        MP_DEBUG(MP_CAT_ITEM, "Packet26: host processing item drop request (distance=%d)",
+                 pkt->field_20);
+        item_drop_ex(obj, pkt->field_20);
         break;
-    case 64:  // Packet64 (spell)
-        pkt64 = (Packet64*)msg;
+    }
+    case 27: {
+        // Packet27 — object location update (position sync)
+        Packet27* pkt = (Packet27*)msg;
+        if (pkt->oid.type == OID_TYPE_NULL) {
+            break;
+        }
+        obj = obj_pool_perm_lookup(pkt->oid);
+        if (obj == OBJ_HANDLE_NULL) {
+            MP_WARN(MP_CAT_SYNC, "Packet27: OID (type=%d) not found — ObjectID mismatch?",
+                    pkt->oid.type);
+            break;
+        }
+        MP_TRACE(MP_CAT_SYNC, "Packet27: updating object location");
+        sub_43E770(obj, pkt->loc, 0, 0);  // Move object to new location
+        // If we are the host, re-broadcast to all other clients
+        if (tig_net_is_host()) {
+            tig_net_send_app_all(pkt, sizeof(*pkt));
+        }
         break;
-    case 71:  // PacketPartyUpdate
-        pkt71 = (PacketPartyUpdate*)msg;
+    }
+    case 28: {
+        // Packet28 — item moved into a critter's inventory
+        Packet28* pkt = (Packet28*)msg;
+        int64_t item    = obj_pool_perm_lookup(pkt->item_oid);
+        int64_t critter = obj_pool_perm_lookup(pkt->critter_oid);
+        if (item == OBJ_HANDLE_NULL || critter == OBJ_HANDLE_NULL) {
+            MP_WARN(MP_CAT_ITEM, "Packet28: item or critter OID not found");
+            break;
+        }
+        MP_DEBUG(MP_CAT_ITEM, "Packet28: moving item into critter inventory slot %d",
+                 pkt->inventory_location);
+        item_insert(item, critter, pkt->inventory_location);
         break;
-    case 72:  // PacketObjectDestroy
-        pkt72 = (PacketObjectDestroy*)msg;
+    }
+    case 46: {
+        // Packet46 — player disconnected/exited gracefully
+        Packet46* pkt = (Packet46*)msg;
+        int player = pkt->player;
+        if (player < 0 || player >= NUM_PLAYERS) {
+            MP_WARN(MP_CAT_SESSION, "Packet46: invalid player index %d", player);
+            break;
+        }
+        MP_INFO(MP_CAT_SESSION, "Player %d sent disconnect packet", player);
+        int64_t pc;
+        if (sub_4A1F60(player, &pc) && pc != OBJ_HANDLE_NULL) {
+            MP_INFO(MP_CAT_SESSION, "Removing disconnected player's object from world");
+            object_destroy(pc);
+        }
+        sub_49CB80(&stru_5E8AD0[player]);  // Reset player slot
         break;
+    }
+    case 64: {
+        // Packet64 — host instructs client to load a map
+        Packet64* pkt = (Packet64*)msg;
+        MP_INFO(MP_CAT_SYNC, "Received map load from host: map=%d name=%s",
+                pkt->map, pkt->name);
+        if (!tig_net_is_host()) {
+            // Client loads the map
+            multiplayer_map_open_by_name(pkt->name);
+        }
+        break;
+    }
+    case 71: {
+        // PacketPartyUpdate — host broadcasts full party table
+        PacketPartyUpdate* pkt = (PacketPartyUpdate*)msg;
+        MP_DEBUG(MP_CAT_PARTY, "Received party table update from host");
+        // sub_4BA2E0 is the existing function that applies a received party array.
+        // It checks !is_host before applying, so safe to call unconditionally.
+        sub_4BA2E0(pkt->party, SDL_arraysize(pkt->party));
+        break;
+    }
+    case 72: {
+        // PacketObjectDestroy — host destroyed an object; clients remove it
+        PacketObjectDestroy* pkt = (PacketObjectDestroy*)msg;
+        if (pkt->oid.type == OID_TYPE_NULL) {
+            break;
+        }
+        obj = obj_pool_perm_lookup(pkt->oid);
+        if (obj == OBJ_HANDLE_NULL) {
+            MP_WARN(MP_CAT_SYNC, "Packet72: OID not found for destroy — already gone?");
+            break;
+        }
+        MP_INFO(MP_CAT_SYNC, "Packet72: destroying object by host request");
+        object_destroy(obj);
+        break;
+    }
+    case 93: {
+        // Packet93 — toggle item visibility (OIF_NO_DISPLAY flag)
+        Packet93* pkt = (Packet93*)msg;
+        if (pkt->oid.type == OID_TYPE_NULL) {
+            break;
+        }
+        obj = obj_pool_perm_lookup(pkt->oid);
+        if (obj == OBJ_HANDLE_NULL) {
+            MP_WARN(MP_CAT_ITEM, "Packet93: item OID not found for visibility toggle");
+            break;
+        }
+        MP_TRACE(MP_CAT_ITEM, "Packet93: item visibility -> %s",
+                 pkt->field_20 ? "visible" : "hidden");
+        {
+            unsigned int flags = (unsigned int)obj_field_int32_get(obj, OBJ_F_ITEM_FLAGS);
+            if (pkt->field_20 == 0) {
+                flags |= OIF_NO_DISPLAY;
+            } else {
+                flags &= ~OIF_NO_DISPLAY;
+            }
+            obj_field_int32_set(obj, OBJ_F_ITEM_FLAGS, (int)flags);
+        }
+        break;
+    }
+    case 98: {
+        // PacketMultiplayerFlagsChange — remote player's preference flags changed
+        PacketMultiplayerFlagsChange* pkt = (PacketMultiplayerFlagsChange*)msg;
+        if (pkt->client_id < 0 || pkt->client_id >= NUM_PLAYERS) {
+            MP_WARN(MP_CAT_SYNC, "Packet98: invalid client_id %d", pkt->client_id);
+            break;
+        }
+        stru_5E8AD0[pkt->client_id].flags =
+            (stru_5E8AD0[pkt->client_id].flags & ~0xFF00u) | (pkt->flags & 0xFF00u);
+        MP_DEBUG(MP_CAT_SYNC, "Packet98: player %d flags updated to 0x%04X",
+                 pkt->client_id, pkt->flags & 0xFF00u);
+        break;
+    }
     default:
+        MP_WARN(MP_CAT_PKT, "Unhandled packet type %d received", type);
         break;
     }
 }
 
 // 0x4A1F30
+// Apply a received location update to an object (move it locally).
+// Do NOT send Packet27 here — this is the receive path; sending would loop.
 void sub_4A1F30(int64_t obj, int64_t location, int dx, int dy)
 {
     if (location != 0) {
         sub_43E770(obj, location, dx, dy);
-        mp_send_object_location(obj, location);
     }
 }
 
@@ -1129,23 +1237,47 @@ void sub_4A2040(int a1)
 }
 
 // 0x4A2070
-bool multiplayer_handle_network_event(int type, int client_id, void* data, int size)
+void multiplayer_handle_network_event(int event_type, int client_id)
 {
-    (void)client_id;
-    (void)data;
-    (void)size;
+    int64_t pc;
 
-    switch (type) {
-    case 0:  // Connect
+    switch (event_type) {
+    case NET_EVENT_CLIENT_CONNECTED:
+        MP_INFO(MP_CAT_SESSION, "Client connected: slot=%d", client_id);
+        // Send the current player list to the new client so it knows all OIDs
+        multiplayer_send_player_list();
         break;
-    case 1:  // Disconnect
+
+    case NET_EVENT_CLIENT_DISCONNECTED:
+        MP_WARN(MP_CAT_SESSION, "Client disconnected: slot=%d", client_id);
+        // Remove the disconnected player's object from the world if it exists
+        if (client_id >= 0 && client_id < NUM_PLAYERS) {
+            if (sub_4A1F60(client_id, &pc) && pc != OBJ_HANDLE_NULL) {
+                PacketObjectDestroy destroy_pkt;
+                destroy_pkt.type = 72;
+                destroy_pkt.padding_4 = 0;
+                destroy_pkt.oid = obj_get_id(pc);
+                tig_net_send_app_all(&destroy_pkt, sizeof(destroy_pkt));
+                MP_INFO(MP_CAT_SESSION, "Broadcast player object destruction to remaining clients");
+                object_destroy(pc);
+            }
+            sub_49CB80(&stru_5E8AD0[client_id]);
+        }
         break;
-    case 2:  // Error
+
+    case NET_EVENT_CONNECTION_LOST:
+        MP_ERROR(MP_CAT_SESSION, "Connection to host lost");
+        // The game session is unrecoverable from the client side.
+        // multiplayer_end() will clean up state; the UI layer should
+        // detect is_active going false and return to the main menu.
+        multiplayer_end();
         break;
+
     default:
+        MP_WARN(MP_CAT_SESSION, "Unknown network event type %d for client %d",
+                event_type, client_id);
         break;
     }
-    return true;
 }
 
 // 0x4A2A30

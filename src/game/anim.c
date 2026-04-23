@@ -10798,6 +10798,11 @@ bool AGupdateAnimMoveStraight(AnimRunInfo* run_info)
 
         sub_43E770(obj, new_loc, offset_x, offset_y);
 
+        // Send local player position to network on each tile transition
+        if (tig_net_is_active() && new_loc != loc && player_is_local_pc_obj(obj)) {
+            mp_send_object_location(obj, new_loc);
+        }
+
         run_info->path.curr += 2;
 
         if (run_info->path.curr >= run_info->path.max) {

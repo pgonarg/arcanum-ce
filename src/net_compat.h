@@ -3,50 +3,71 @@
 
 #include "net/network.h"
 
-// Network server options
+// ---------------------------------------------------------------------------
+// Server option flags (checked throughout game code)
+// ---------------------------------------------------------------------------
 #define TIG_NET_SERVER_PLAYER_KILLING 0x0001
-#define TIG_NET_SERVER_FRIENDLY_FIRE 0x0002
-#define TIG_NET_SERVER_AUTO_EQUIP 0x0020
-#define TIG_NET_SERVER_KEY_SHARING 0x0040
+#define TIG_NET_SERVER_FRIENDLY_FIRE  0x0002
+#define TIG_NET_SERVER_AUTO_EQUIP     0x0020
+#define TIG_NET_SERVER_KEY_SHARING    0x0040
 
-// TIG_OK return code
+// Return code used by original TIG network API
 #define TIG_OK 0
 
-// Implemented network functions (redirected to src/net/network.c)
-#define tig_net_is_active() net_is_active()
-#define tig_net_is_host() net_is_host()
-#define tig_net_send_app_all(msg, size) net_send_message(msg, size)
-#define tig_net_start_client() (net_start_client("127.0.0.1") ? TIG_OK : 1)
-#define tig_net_on_message(handler) net_set_message_handler(handler)
-#define tig_net_on_network_event(handler) net_set_event_handler(handler)
-#define tig_net_start_server() net_start_server()
+// ---------------------------------------------------------------------------
+// Core network functions — mapped to real implementations
+// ---------------------------------------------------------------------------
+#define tig_net_is_active()              net_is_active()
+#define tig_net_is_host()                net_is_host()
+#define tig_net_send_app_all(msg, size)  net_send_message(msg, size)
+#define tig_net_send_app(id, msg, size)  net_send_message_to(id, msg, size)
+#define tig_net_send_app_except(id, msg, size) net_send_message_except(id, msg, size)
+#define tig_net_start_server()           net_start_server()
+#define tig_net_start_client()           (net_start_client(g_mp_join_address) ? TIG_OK : 1)
+#define tig_net_on_message(h)            net_set_message_handler(h)
+#define tig_net_on_network_event(h)      net_set_event_handler(h)
 
-// Stub implementations (not critical for Phase 3)
-#define tig_net_send_app(a, b, c)
-#define tig_net_send_app_except(a, b, c)
-#define tig_net_local_client_set_name(a) 1
-#define tig_net_local_server_set_max_players(a) 1
-#define tig_net_local_server_set_description(a) 1
-#define tig_net_local_server_set_name(a)
-#define tig_net_on_message_validation(a)
-#define sub_5280F0() 1
-#define sub_52A940()
-#define sub_52A950()
-#define sub_52B210()
-#define sub_5286E0()
-#define tig_net_xfer_count(a) 0
-#define tig_net_client_is_active(a) 0
-#define tig_net_client_is_waiting(a) 0
-#define tig_net_client_is_loading(a) 0
-#define sub_52A9E0(a)
-#define tig_net_local_server_get_max_players() 8
-#define tig_net_xfer_send_as(a, b, c, d)
-#define tig_net_xfer_send(a, b, c)
-#define sub_529520() 0
-#define tig_net_reset_connection()
-#define tig_net_local_server_get_options() 0
-#define sub_52A530() 0
-#define sub_52A900() 0
-#define tig_net_client_info_get_name(a) 0
+// Client slot status — backed by real connection tracking
+#define tig_net_client_is_active(id)     net_client_is_connected(id)
+#define tig_net_client_is_waiting(id)    0  // Not yet implemented
+#define tig_net_client_is_loading(id)    0  // Not yet implemented
+
+// Server options — backed by g_server_options global
+#define tig_net_local_server_get_options()      net_get_server_options()
+#define tig_net_local_server_set_options(opts)  net_set_server_options(opts)
+#define tig_net_local_server_get_max_players()  g_mp_max_players
+#define tig_net_local_server_set_max_players(n) (g_mp_max_players = (n), 1)
+#define tig_net_local_server_set_name(n)        ((void)(n))
+#define tig_net_local_server_set_description(n) ((void)(n))
+#define tig_net_local_client_set_name(n)        1
+
+// Message validation hook — not implemented, silently ignored
+#define tig_net_on_message_validation(h)        ((void)(h))
+
+// ---------------------------------------------------------------------------
+// File transfer — not yet implemented (Phase 6).
+// xfer_count returns 0 so the "wait for transfer" logic in multiplayer.c
+// proceeds immediately. Files are not actually transferred until Phase 6.
+// See MULTIPLAYER_IMPLEMENTATION_PLAN.md §Phase 6.
+// ---------------------------------------------------------------------------
+#define tig_net_xfer_count(id)              0
+#define tig_net_xfer_send(path, id, cb)     ((void)0)
+#define tig_net_xfer_send_as(s, d, id, cb) ((void)0)
+
+// ---------------------------------------------------------------------------
+// Stubs for original TIG functions that have no CE equivalent.
+// These controlled lobby/session browsing in the original DirectPlay layer.
+// ---------------------------------------------------------------------------
+#define sub_5280F0()          1
+#define sub_52A940()          ((void)0)
+#define sub_52A950()          ((void)0)
+#define sub_52B210()          ((void)0)
+#define sub_5286E0()          ((void)0)
+#define sub_52A9E0(a)         ((void)(a))
+#define sub_529520()          0
+#define tig_net_reset_connection()          ((void)0)
+#define sub_52A530()          0
+#define sub_52A900()          0
+#define tig_net_client_info_get_name(id)    0
 
 #endif /* ARCANUM_NET_COMPAT_H_ */
