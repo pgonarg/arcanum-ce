@@ -841,6 +841,13 @@ void multiplayer_start_play(PlayerCreateInfo* player_create_info)
     sub_4A5670(player_create_info->obj);
     sub_4EDF20(player_create_info->obj, loc, 0, 0, false);
 
+    // Announce our player object to the other side
+    if (tig_net_is_active()) {
+        // Send initial location so the other side knows about us
+        mp_send_object_location(player_create_info->obj,
+                               obj_field_int64_get(player_create_info->obj, OBJ_F_LOCATION));
+    }
+
     datetime.days = 0;
     datetime.milliseconds = 0;
     timeevent.type = TIMEEVENT_TYPE_TELEPORTED;
