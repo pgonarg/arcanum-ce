@@ -313,6 +313,8 @@ set(SRCS
     "src/ui/wmap_ui.h"
     "src/ui/written_ui.c"
     "src/ui/written_ui.h"
+    "src/net/network.h"
+    "src/net/network.c"
     "src/net_compat.h"
     "src/main.c"
 )

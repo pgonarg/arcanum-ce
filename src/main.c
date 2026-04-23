@@ -50,6 +50,7 @@
 #include "ui/textedit_ui.h"
 #include "ui/wmap_rnd.h"
 #include "ui/wmap_ui.h"
+#include "net/network.h"
 
 static void main_loop(void);
 static void handle_mouse_scroll(void);
@@ -384,6 +385,7 @@ void main_loop(void)
 
         tig_ping();
         gamelib_ping();
+        net_poll();
         iso_redraw();
         tig_window_display();
 
