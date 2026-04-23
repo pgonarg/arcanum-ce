@@ -646,3 +646,20 @@ void mp_send_object_location(int64_t obj, int64_t loc)
     pkt.loc = loc;
     tig_net_send_app_all(&pkt, sizeof(pkt));
 }
+
+// TEST: Sync first PC location to test Packet27
+void mp_test_sync_pc_location(void)
+{
+    int64_t pc;
+    int64_t loc;
+
+    if (!tig_net_is_active()) {
+        return;
+    }
+
+    pc = multiplayer_player_find_first();
+    if (pc != OBJ_HANDLE_NULL) {
+        loc = obj_field_int64_get(pc, 0);  // Assuming field 0 is location
+        mp_send_object_location(pc, loc);
+    }
+}

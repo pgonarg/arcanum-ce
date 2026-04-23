@@ -1063,6 +1063,7 @@ void sub_4A1F30(int64_t obj, int64_t location, int dx, int dy)
 {
     if (location != 0) {
         sub_43E770(obj, location, dx, dy);
+        mp_send_object_location(obj, location);
     }
 }
 
