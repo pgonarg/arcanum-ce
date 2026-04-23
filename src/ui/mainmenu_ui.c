@@ -26,6 +26,7 @@
 #include "game/stat.h"
 #include "game/teleport.h"
 #include "game/timeevent.h"
+#include "game/multiplayer.h"
 #include "ui/broadcast_ui.h"
 #include "ui/charedit_ui.h"
 #include "ui/fate_ui.h"
@@ -472,6 +473,14 @@ static MainMenuButtonInfo mainmenu_ui_mainmenu_no_multiplayer_buttons[] = {
     { 410, 293, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_0, 0, 0, { 0 }, -1 },
 };
 
+static MainMenuButtonInfo mainmenu_ui_mainmenu_with_multiplayer_buttons[] = {
+    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_SINGLE_PLAYER, 0, 0, { 0 }, -1 },
+    { 410, 193, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_MULTIPLAYER, 0, 0, { 0 }, -1 },
+    { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_OPTIONS, 0, 0, { 0 }, -1 },
+    { 410, 293, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_CREDITS, 0, 0, { 0 }, -1 },
+    { 410, 343, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_0, 0, 0, { 0 }, -1 },
+};
+
 // 0x5C4170
 static MainMenuWindowInfo mainmenu_ui_mainmenu_window_info = {
     329,
@@ -483,9 +492,9 @@ static MainMenuWindowInfo mainmenu_ui_mainmenu_window_info = {
     NULL,
     NULL,
     NULL,
-    460,
-    SDL_arraysize(mainmenu_ui_mainmenu_no_multiplayer_buttons),
-    mainmenu_ui_mainmenu_no_multiplayer_buttons,
+    10,
+    SDL_arraysize(mainmenu_ui_mainmenu_with_multiplayer_buttons),
+    mainmenu_ui_mainmenu_with_multiplayer_buttons,
     0,
     0,
     0xD,
@@ -885,6 +894,46 @@ static MainMenuWindowInfo mainmenu_ui_single_player_window_info = {
     2,
 };
 
+// Multiplayer window buttons
+static MainMenuButtonInfo mainmenu_ui_multiplayer_buttons[] = {
+    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 193, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
+};
+
+static MainMenuWindowInfo mainmenu_ui_multiplayer_window_info = {
+    329,
+    NULL,
+    NULL,
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    220,
+    SDL_arraysize(mainmenu_ui_multiplayer_buttons),
+    mainmenu_ui_multiplayer_buttons,
+    0,
+    0,
+    0xD,
+    {
+        { -1, 0, 0 },
+        { -1, 0, 0 },
+    },
+    NULL,
+    NULL,
+    { 0 },
+    NULL,
+    { 0 },
+    NULL,
+    0,
+    0,
+    0,
+    -1,
+    0,
+};
+
 // 0x5C4B20
 static MainMenuButtonInfo mainmenu_ui_pick_new_or_pregen_buttons[] = {
     { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PREGEN_CHAR, 0, 0, { 0 }, -1 },
@@ -1256,6 +1305,7 @@ static MainMenuWindowInfo* main_menu_window_info[MM_WINDOW_COUNT] = {
     /*                    MM_WINDOW_SHOP */ &mainmenu_ui_shop_info,
     /*                 MM_WINDOW_CREDITS */ &mainmenu_ui_credits_window_info,
     /*                      MM_WINDOW_26 */ &stru_5C4338,
+    /*              MM_WINDOW_MULTIPLAYER */ &mainmenu_ui_multiplayer_window_info,
 };
 
 // 0x64B870

@@ -56,6 +56,7 @@ typedef enum MainMenuWindowType {
     MM_WINDOW_SHOP,
     MM_WINDOW_CREDITS,
     MM_WINDOW_26,
+    MM_WINDOW_MULTIPLAYER,
     MM_WINDOW_COUNT,
 } MainMenuWindowType;
 
