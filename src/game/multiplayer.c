@@ -1039,6 +1039,10 @@ void multiplayer_handle_message(void* msg)
             int64_t obj = obj_pool_perm_lookup(pkt27->oid);
             if (obj != OBJ_HANDLE_NULL) {
                 sub_4A1F30(obj, pkt27->loc, 0, 0);
+            } else {
+                // DEBUG: Log unknown object - indicates ObjectID mismatch between host/client
+                tig_debug_printf("MP: Packet27 for unknown ObjectID (type=%d, id=%d)\n",
+                                pkt27->oid.type, pkt27->oid.id);
             }
         }
         break;
