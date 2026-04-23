@@ -896,7 +896,7 @@ static MainMenuWindowInfo mainmenu_ui_single_player_window_info = {
 
 // Multiplayer window buttons
 static MainMenuButtonInfo mainmenu_ui_multiplayer_buttons[] = {
-    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_MULTIPLAYER_JOIN_ADDRESS, 0, 0, { 0 }, -1 },
     { 410, 193, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
     { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
 };
@@ -918,6 +918,49 @@ static MainMenuWindowInfo mainmenu_ui_multiplayer_window_info = {
     220,
     SDL_arraysize(mainmenu_ui_multiplayer_buttons),
     mainmenu_ui_multiplayer_buttons,
+    0,
+    0,
+    0xD,
+    {
+        { -1, 0, 0 },
+        { -1, 0, 0 },
+    },
+    NULL,
+    NULL,
+    { 0 },
+    NULL,
+    { 0 },
+    NULL,
+    0,
+    0,
+    0,
+    -1,
+    0,
+};
+
+// Forward declarations for address input functions
+void mainmenu_ui_create_multiplayer_join_address(void);
+bool mainmenu_ui_multiplayer_join_address_execute(int btn);
+
+// Multiplayer join address input window buttons
+static MainMenuButtonInfo mainmenu_ui_multiplayer_join_address_buttons[] = {
+    { 410, 200, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 250, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
+};
+
+static MainMenuWindowInfo mainmenu_ui_multiplayer_join_address_window_info = {
+    329,
+    mainmenu_ui_create_multiplayer_join_address,
+    mainmenu_ui_multiplayer_join_address_execute,
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    230,
+    SDL_arraysize(mainmenu_ui_multiplayer_join_address_buttons),
+    mainmenu_ui_multiplayer_join_address_buttons,
     0,
     0,
     0xD,
@@ -1310,6 +1353,7 @@ static MainMenuWindowInfo* main_menu_window_info[MM_WINDOW_COUNT] = {
     /*                 MM_WINDOW_CREDITS */ &mainmenu_ui_credits_window_info,
     /*                      MM_WINDOW_26 */ &stru_5C4338,
     /*              MM_WINDOW_MULTIPLAYER */ &mainmenu_ui_multiplayer_window_info,
+    /*    MM_WINDOW_MULTIPLAYER_JOIN_ADDRESS */ &mainmenu_ui_multiplayer_join_address_window_info,
 };
 
 // 0x64B870
@@ -1411,6 +1455,9 @@ static bool dword_64C428;
 // Game mode tracking
 static GameMode mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
 
+// Network address buffer for multiplayer join mode
+static char mainmenu_ui_network_address[128];
+
 // 0x64C42C
 static int dword_64C42C[3];
 
@@ -1465,6 +1512,28 @@ bool mainmenu_ui_multiplayer_execute(int btn)
         mainmenu_ui_auto_equip_items_on_start = true;
         return true;
     }
+    return true;
+}
+
+void mainmenu_ui_create_multiplayer_join_address(void)
+{
+    TextEdit textedit;
+
+    mainmenu_ui_window_type = MM_WINDOW_MULTIPLAYER_JOIN_ADDRESS;
+    mainmenu_ui_create_window();
+    mainmenu_ui_draw_version();
+
+    textedit.flags = 0;
+    textedit.buffer = mainmenu_ui_network_address;
+    textedit.size = sizeof(mainmenu_ui_network_address) - 1;
+    textedit.on_enter = NULL;
+    textedit.on_change = NULL;
+    textedit.on_tab = NULL;
+    textedit_ui_focus(&textedit);
+}
+
+bool mainmenu_ui_multiplayer_join_address_execute(int btn)
+{
     return true;
 }
 
@@ -1908,6 +1977,7 @@ void mainmenu_ui_reset(void)
     gamelib_reset();
     gameuilib_reset();
     mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+    memset(mainmenu_ui_network_address, 0, sizeof(mainmenu_ui_network_address));
 }
 
 // 0x541740
