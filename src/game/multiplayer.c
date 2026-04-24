@@ -1383,6 +1383,14 @@ void multiplayer_handle_message(void* msg)
         }
         break;
     }
+    case 92: {
+        Packet92* pkt92 = (Packet92*)msg;
+        int64_t obj92;
+        sub_4F0690(pkt92->oid, &obj92);
+        if (obj92 == OBJ_HANDLE_NULL) break;
+        object_set_current_aid(obj92, pkt92->art_id);
+        break;
+    }
     case 125: {
         PacketAppearanceSync* pkt125 = (PacketAppearanceSync*)msg;
         int64_t obj125;
@@ -1824,23 +1832,12 @@ void sub_4A3230(ObjectID oid, bool (*success_func)(void*), void* success_info, b
                 }
             }
         } else {
-            S5E8940 entry;
-            Packet80 pkt;
-
-            entry.success_func = success_func;
-            entry.success_info = success_info;
-            entry.failure_func = failure_func;
-            entry.failure_info = failure_info;
-            tig_idxtable_set(&stru_5E8940, dword_5F0E18, &entry);
-
-            pkt.type = 80;
-            pkt.item_oid = oid;
-            pkt.parent_oid = parent_oid;
-            pkt.idx = dword_5F0E18;
-            pkt.field_3C = 1;
-            tig_net_send_app_all(&pkt, sizeof(pkt));
-
-            dword_5F0E18++;
+            // Guest authorizes its own item pickup locally — no host roundtrip needed
+            // since each player manages their own inventory and item moves are synced
+            // via Packet28/item_transfer_ex after the drag completes.
+            if (success_func != NULL) {
+                success_func(success_info);
+            }
         }
     } else {
         if (success_func != NULL) {

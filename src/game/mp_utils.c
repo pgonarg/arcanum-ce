@@ -663,7 +663,13 @@ void mp_send_appearance_sync(int64_t obj)
     }
 
     pkt.type = 125;
-    pkt.art_id = obj_field_int32_get(obj, OBJ_F_AID);
+    // OBJ_F_CURRENT_AID has armor subtype baked in (via tig_art_critter_id_armor_set
+    // when armor is equipped). OBJ_F_AID stays as the bare-body base art.
+    // Normalize to STAND/frame-0 so we ship the appearance without animation state.
+    tig_art_id_t aid = (tig_art_id_t)obj_field_int32_get(obj, OBJ_F_CURRENT_AID);
+    aid = tig_art_id_anim_set(aid, TIG_ART_ANIM_STAND);
+    aid = tig_art_id_frame_set(aid, 0);
+    pkt.art_id = aid;
     sub_4F0640(obj, &pkt.oid);
     if (pkt.oid.type == OID_TYPE_NULL) {
         return;
