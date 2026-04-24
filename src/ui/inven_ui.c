@@ -478,19 +478,6 @@ bool inven_ui_open(int64_t pc_obj, int64_t target_obj, int mode)
         return true;
     }
 
-    if (tig_net_is_active() && !tig_net_is_host()) {
-        Packet100 pkt;
-
-        pkt.type = 100;
-        pkt.subtype = 12;
-        sub_4F0640(pc_obj, &(pkt.d.z.field_8));
-        sub_4F0640(target_obj, &(pkt.d.z.field_20));
-        pkt.d.z.field_38 = mode;
-        pkt.d.z.field_3C = 0;
-        tig_net_send_app_all(&pkt, sizeof(pkt));
-
-        return true;
-    }
 
     if (!sub_572370(pc_obj, target_obj, mode)) {
         return false;

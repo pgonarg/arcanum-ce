@@ -864,6 +864,7 @@ void multiplayer_start_play(PlayerCreateInfo* player_create_info)
         // Send initial location so the other side knows about us
         mp_send_object_location(player_create_info->obj,
                                obj_field_int64_get(player_create_info->obj, OBJ_F_LOCATION));
+        mp_send_appearance_sync(player_create_info->obj);
     }
 
     datetime.days = 0;
@@ -1044,6 +1045,7 @@ void multiplayer_handle_message(void* msg)
                         mp_guest_announced = true;
                         MP_INFO(MP_CAT_SESSION, "Announcing local PC to host (oid.type=%d)", (int)pc_oid.type);
                         mp_send_object_location(pc, obj_field_int64_get(pc, OBJ_F_LOCATION));
+                        mp_send_appearance_sync(pc);
                     } else {
                         MP_WARN(MP_CAT_SESSION, "PC OID still null — will retry on next time-sync");
                     }
@@ -1212,6 +1214,12 @@ void multiplayer_handle_message(void* msg)
                         }
                     }
                     multiplayer_send_player_list();
+                    // Tell the new guest where we currently are (appearance comes from player list).
+                    int64_t host_pc = player_get_local_pc_obj();
+                    if (host_pc != OBJ_HANDLE_NULL) {
+                        mp_send_object_location(host_pc,
+                            obj_field_int64_get(host_pc, OBJ_F_LOCATION));
+                    }
                 } else {
                     MP_WARN(MP_CAT_SYNC, "Packet27: OID (type=%d) not found",
                             pkt27->oid.type);
@@ -1224,11 +1232,16 @@ void multiplayer_handle_message(void* msg)
                 sub_43E770(obj27, pkt27->loc, 0, 0);
                 tig_net_send_app_all(pkt27, sizeof(*pkt27));
             } else if (obj27 == player_get_local_pc_obj()) {
-                // Guest's own PC: ignore host relay — prediction is already running
+                // Own PC: ignore — prediction is already running.
                 MP_TRACE(MP_CAT_SYNC, "Packet27: skipping snap for local PC (prediction active)");
+            } else if (player_is_pc_obj(obj27)) {
+                // Remote PC: snap to initial/corrected position.
+                // PC movement is driven by Packet4 goals; Packet27 is for initial join sync.
+                MP_TRACE(MP_CAT_SYNC, "Packet27: snapping remote PC to loc=%lld", (long long)pkt27->loc);
+                sub_43E770(obj27, pkt27->loc, 0, 0);
             } else {
-                // Remote object on guest: smooth movement instead of snap
-                MP_TRACE(MP_CAT_SYNC, "Packet27: smooth move for remote object to loc=%lld", (long long)pkt27->loc);
+                // Remote NPC: smooth move.
+                MP_TRACE(MP_CAT_SYNC, "Packet27: smooth move for remote NPC to loc=%lld", (long long)pkt27->loc);
                 anim_goal_run_to_tile(obj27, pkt27->loc);
             }
         }
@@ -1368,6 +1381,15 @@ void multiplayer_handle_message(void* msg)
                 }
             }
         }
+        break;
+    }
+    case 125: {
+        PacketAppearanceSync* pkt125 = (PacketAppearanceSync*)msg;
+        int64_t obj125;
+        sub_4F0690(pkt125->oid, &obj125);
+        if (obj125 == OBJ_HANDLE_NULL) break;
+        obj_field_int32_set(obj125, OBJ_F_AID, pkt125->art_id);
+        object_set_current_aid(obj125, pkt125->art_id);
         break;
     }
     default:

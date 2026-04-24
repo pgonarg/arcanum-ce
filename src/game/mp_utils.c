@@ -564,7 +564,9 @@ void sub_4EFB50(Packet121* pkt)
 
     multiplayer_lock();
     sub_4F0690(pkt->oid, &obj);
-    sub_463B30(obj, pkt->field_20);
+    if (obj != OBJ_HANDLE_NULL && !player_is_pc_obj(obj)) {
+        sub_463B30(obj, pkt->field_20);
+    }
     multiplayer_unlock();
 }
 
@@ -649,6 +651,23 @@ void mp_send_object_location(int64_t obj, int64_t loc)
         return;
     }
     pkt.loc = loc;
+    tig_net_send_app_all(&pkt, sizeof(pkt));
+}
+
+void mp_send_appearance_sync(int64_t obj)
+{
+    PacketAppearanceSync pkt;
+
+    if (!tig_net_is_active()) {
+        return;
+    }
+
+    pkt.type = 125;
+    pkt.art_id = obj_field_int32_get(obj, OBJ_F_AID);
+    sub_4F0640(obj, &pkt.oid);
+    if (pkt.oid.type == OID_TYPE_NULL) {
+        return;
+    }
     tig_net_send_app_all(&pkt, sizeof(pkt));
 }
 

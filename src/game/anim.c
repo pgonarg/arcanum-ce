@@ -10807,12 +10807,9 @@ bool AGupdateAnimMoveStraight(AnimRunInfo* run_info)
 
         sub_43E770(obj, new_loc, offset_x, offset_y);
 
-        // Send position to network on each tile transition:
-        // - local PC sends its own movement
-        // - host re-broadcasts positions of remote player placeholders
-        if (tig_net_is_active() && new_loc != loc
-            && (player_is_local_pc_obj(obj)
-                || (tig_net_is_host() && player_is_pc_obj(obj)))) {
+        // Local PC sends per-step position to host for correction sync.
+        // Host's PC movement is driven by Packet4 on guests — no Packet27 needed.
+        if (tig_net_is_active() && new_loc != loc && player_is_local_pc_obj(obj)) {
             mp_send_object_location(obj, new_loc);
         }
 
