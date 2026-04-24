@@ -624,8 +624,6 @@ bool item_transfer_ex(int64_t item_obj, int64_t critter_obj, int inventory_locat
         sub_4F0640(critter_obj, &(pkt.critter_oid));
         pkt.inventory_location = inventory_location;
         tig_net_send_app_all(&pkt, sizeof(pkt));
-
-        return true;
     }
 
     if (item_parent(item_obj, NULL)) {
@@ -718,7 +716,6 @@ bool item_drop_ex(int64_t item_obj, int distance)
         sub_4F0640(item_obj, &(pkt.oid));
         pkt.field_20 = distance;
         tig_net_send_app_all(&pkt, sizeof(pkt));
-        return true;
     }
 
     item_parent(item_obj, &parent_obj);
@@ -4257,6 +4254,7 @@ void item_equipped(int64_t item_obj, int64_t parent_obj, int inventory_location)
     case ITEM_INV_LOC_SHIELD:
         aid = sub_465020(parent_obj);
         object_set_current_aid(parent_obj, aid);
+        mp_send_appearance_sync(parent_obj);
 
         if (player_is_local_pc_obj(parent_obj)) {
             sub_4605D0();
@@ -4265,6 +4263,7 @@ void item_equipped(int64_t item_obj, int64_t parent_obj, int inventory_location)
     case ITEM_INV_LOC_ARMOR:
         if (sub_465AE0(item_obj, parent_obj, &aid)) {
             object_set_current_aid(parent_obj, aid);
+            mp_send_appearance_sync(parent_obj);
         }
         break;
     }
@@ -4394,6 +4393,7 @@ void item_unequipped(int64_t item_obj, int64_t parent_obj, int inventory_locatio
     case ITEM_INV_LOC_SHIELD:
         aid = sub_465020(parent_obj);
         object_set_current_aid(parent_obj, aid);
+        mp_send_appearance_sync(parent_obj);
 
         if (player_is_local_pc_obj(parent_obj)) {
             sub_4605D0();
@@ -4402,6 +4402,7 @@ void item_unequipped(int64_t item_obj, int64_t parent_obj, int inventory_locatio
     case ITEM_INV_LOC_ARMOR:
         if (sub_465AE0(OBJ_HANDLE_NULL, parent_obj, &aid)) {
             object_set_current_aid(parent_obj, aid);
+            mp_send_appearance_sync(parent_obj);
         }
         break;
     }

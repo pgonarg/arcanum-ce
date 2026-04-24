@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 
+#include "net/mp_log.h"
+
 #include "game/ai.h"
 #include "game/animfx.h"
 #include "game/critter.h"
@@ -5019,7 +5021,8 @@ bool sub_426040(AnimRunInfo* run_info)
     run_info->path_attached_to_stack_index = run_info->current_goal;
 
     if (tig_net_is_active()
-        && !tig_net_is_host()) {
+        && !tig_net_is_host()
+        && !player_is_pc_obj(obj)) {
         sub_44EBF0(run_info);
         return true;
     }
@@ -5393,7 +5396,8 @@ bool sub_426A80(AnimRunInfo* run_info)
     ASSERT(target_obj != OBJ_HANDLE_NULL); // 4783, "targetObj != OBJ_HANLDE_NULL"
 
     if (tig_net_is_active()
-        && !tig_net_is_host()) {
+        && !tig_net_is_host()
+        && !player_is_pc_obj(source_obj)) {
         sub_44EBF0(run_info);
         return true;
     }
@@ -5889,7 +5893,8 @@ bool sub_427730(AnimRunInfo* run_info)
     }
 
     if (tig_net_is_active()
-        && !tig_net_is_host()) {
+        && !tig_net_is_host()
+        && !player_is_pc_obj(obj)) {
         sub_44EBF0(run_info);
         return true;
     }
@@ -5971,7 +5976,8 @@ bool sub_427990(AnimRunInfo* run_info)
     }
 
     if (tig_net_is_active()
-        && !tig_net_is_host()) {
+        && !tig_net_is_host()
+        && !player_is_pc_obj(source_obj)) {
         sub_44EBF0(run_info);
         return true;
     }
@@ -6176,7 +6182,8 @@ bool sub_4280D0(AnimRunInfo* run_info)
     }
 
     if (tig_net_is_active()
-        && !tig_net_is_host()) {
+        && !tig_net_is_host()
+        && !player_is_pc_obj(source_obj)) {
         sub_44EBF0(run_info);
         return true;
     }
@@ -8107,14 +8114,15 @@ bool sub_42B090(AnimRunInfo* run_info)
         return true;
     }
 
-    if (tig_net_is_active()
-        && !tig_net_is_host()) {
-        return true;
-    }
-
     obj = run_info->params[0].obj;
 
     ASSERT(obj != OBJ_HANDLE_NULL); // 8068, "obj != OBJ_HANDLE_NULL"
+
+    if (tig_net_is_active()
+        && !tig_net_is_host()
+        && !player_is_pc_obj(obj)) {
+        return true;
+    }
 
     if ((run_info->flags & 0x8000) != 0
         || map_is_clearing_objects()
@@ -8167,14 +8175,15 @@ bool sub_42B250(AnimRunInfo* run_info)
         return true;
     }
 
-    if (tig_net_is_active()
-        && !tig_net_is_host()) {
-        return true;
-    }
-
     obj = run_info->params[0].obj;
 
     ASSERT(obj != OBJ_HANDLE_NULL); // 8202, "obj != OBJ_HANDLE_NULL"
+
+    if (tig_net_is_active()
+        && !tig_net_is_host()
+        && !player_is_pc_obj(obj)) {
+        return true;
+    }
 
     if ((run_info->flags & 0x8000) != 0
         || map_is_clearing_objects()
@@ -10798,6 +10807,12 @@ bool AGupdateAnimMoveStraight(AnimRunInfo* run_info)
 
         sub_43E770(obj, new_loc, offset_x, offset_y);
 
+        // Local PC sends per-step position to host for correction sync.
+        // Host's PC movement is driven by Packet4 on guests — no Packet27 needed.
+        if (tig_net_is_active() && new_loc != loc && player_is_local_pc_obj(obj)) {
+            mp_send_object_location(obj, new_loc);
+        }
+
         run_info->path.curr += 2;
 
         if (run_info->path.curr >= run_info->path.max) {
@@ -11418,7 +11433,9 @@ bool sub_4305D0(AnimRunInfo* run_info)
     run_info->flags |= 0x10;
 
     if (tig_net_is_active()
-        && tig_net_is_host()) {
+        && tig_net_is_host()
+        && !player_is_pc_obj(obj)) {
+        // Error-correction only for non-PC objects; PC objects are synced via Packet4 goals.
         if (run_info->path.field_E8 != 0
             && run_info->path.curr > 0) {
             int64_t distance;
@@ -13312,25 +13329,36 @@ bool anim_goal_move_to_tile(int64_t obj, int64_t loc)
 
     if (tig_net_is_active()
         && !tig_net_is_host()) {
+        // Mirror the host's always-run redirect so client prediction uses the right goal type.
+        if (obj_field_int32_get(obj, OBJ_F_TYPE) == OBJ_TYPE_PC
+            && get_always_run(obj)
+            && critter_encumbrance_level_get(obj) < 4) {
+            return anim_goal_run_to_tile(obj, loc);
+        }
+
+        // Suppress duplicate requests for the same destination.
+        if (anim_is_current_goal_type(obj, AG_MOVE_TO_TILE, &anim_id)
+            && anim_id_to_run_info(&anim_id, &run_info)
+            && run_info->goals[run_info->current_goal].params[AGDATA_TARGET_TILE].loc == loc) {
+            return false;
+        }
+
         Packet4 pkt;
-
-        if (!anim_is_current_goal_type(obj, AG_RUN_TO_TILE, &anim_id)) {
-            return false;
-        }
-
-        if (anim_id_to_run_info(&anim_id, &run_info)) {
-            return false;
-        }
-
-        if (run_info->goals[run_info->current_goal].params[AGDATA_TARGET_TILE].loc == loc) {
-            return false;
-        }
-
         pkt.type = 4;
         pkt.subtype = 0;
         sub_4F0640(obj, &(pkt.oid));
         pkt.loc = loc;
         tig_net_send_app_all(&pkt, sizeof(pkt));
+
+        // Client-side prediction: start a local walk goal for smooth animation.
+        // a4=true on sub_424070 suppresses Packet9 (host is authoritative).
+        if (sub_4339A0(obj) && !anim_is_current_goal_type(obj, AG_MOVE_TO_TILE, &stru_5A1908)) {
+            sub_44D500(&goal_data, obj, AG_MOVE_TO_TILE);
+            goal_data.params[AGDATA_TARGET_TILE].loc = loc;
+            if (sub_424070(obj, 3, false, true)) {
+                anim_goal_add(&goal_data, &stru_5A1908);
+            }
+        }
 
         return true;
     }
@@ -13489,7 +13517,10 @@ bool anim_goal_run_to_tile(int64_t obj, int64_t loc)
     AnimGoalData goal_data;
 
     if (tig_net_is_active()
-        && !tig_net_is_host()) {
+        && !tig_net_is_host()
+        && player_is_local_pc_obj(obj)) {
+        // Network path: only for the guest's own PC.
+        // Remote objects skip here and fall through to the direct goal-add path below.
         if (anim_is_current_goal_type(obj, AG_RUN_TO_TILE, &anim_id)
             && anim_id_to_run_info(&anim_id, &run_info)
             && run_info->goals[run_info->current_goal].params[AGDATA_TARGET_TILE].loc == loc) {
@@ -13505,7 +13536,44 @@ bool anim_goal_run_to_tile(int64_t obj, int64_t loc)
 
         tig_net_send_app_all(&pkt, sizeof(pkt));
 
+        // Client-side prediction: interrupt any existing goal and start moving to new tile.
+        // a4=true on sub_424070 suppresses Packet9 (host is authoritative).
+        {
+            bool active = sub_4339A0(obj);
+            MP_DEBUG(MP_CAT_SYNC, "run_to_tile prediction: active=%d", (int)active);
+            if (active) {
+                sub_44D500(&goal_data, obj, AG_RUN_TO_TILE);
+                goal_data.params[AGDATA_TARGET_TILE].loc = loc;
+                bool intr = sub_424070(obj, 3, false, true);
+                MP_DEBUG(MP_CAT_SYNC, "run_to_tile prediction: sub_424070=%d", (int)intr);
+                if (intr) {
+                    bool added = anim_goal_add(&goal_data, &stru_5A1908);
+                    MP_DEBUG(MP_CAT_SYNC, "run_to_tile prediction: anim_goal_add=%d", (int)added);
+                    if (added) {
+                        // Enable per-tile camera auto-follow for the local PC.
+                        AnimRunInfo* pred_ri;
+                        if (anim_id_to_run_info(&stru_5A1908, &pred_ri)) {
+                            pred_ri->flags |= 0x80000;
+                        }
+                    }
+                }
+            }
+        }
+
         return true;
+    }
+
+    // Host's local PC moving: broadcast goal to all clients so they can animate locally.
+    if (tig_net_is_active() && tig_net_is_host()) {
+        int64_t host_pc = player_get_local_pc_obj();
+        if (host_pc != OBJ_HANDLE_NULL && obj == host_pc) {
+            Packet4 pkt4_bcast;
+            pkt4_bcast.type = 4;
+            pkt4_bcast.subtype = 1;
+            sub_4F0640(obj, &pkt4_bcast.oid);
+            pkt4_bcast.loc = loc;
+            tig_net_send_app_all(&pkt4_bcast, sizeof(pkt4_bcast));
+        }
     }
 
     if (!sub_4339A0(obj)) {
@@ -13516,7 +13584,9 @@ bool anim_goal_run_to_tile(int64_t obj, int64_t loc)
         sub_44D500(&goal_data, obj, AG_RUN_TO_TILE);
         goal_data.params[AGDATA_TARGET_TILE].loc = loc;
 
-        if (!sub_424070(obj, 3, false, false)) {
+        // Suppress Packet9 when guest drives animation for a remote object
+        bool suppress_pkt9 = tig_net_is_active() && !tig_net_is_host();
+        if (!sub_424070(obj, 3, false, suppress_pkt9)) {
             return false;
         }
 

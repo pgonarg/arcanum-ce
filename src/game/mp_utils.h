@@ -672,6 +672,15 @@ typedef struct Packet128 {
 // Serializeable.
 static_assert(sizeof(Packet128) == 0x38, "wrong size");
 
+typedef struct PacketAppearanceSync {
+    /* 0000 */ int type;       // 125
+    /* 0004 */ tig_art_id_t art_id;
+    /* 0008 */ ObjectID oid;
+} PacketAppearanceSync;
+
+// Serializeable.
+static_assert(sizeof(PacketAppearanceSync) == 0x20, "wrong size");
+
 bool sub_4ED6C0(int64_t obj);
 bool mp_object_create(int name, int64_t loc, int64_t* obj_ptr);
 void sub_4EDA60(UiMessage* ui_message, int player, int a3);
@@ -694,5 +703,9 @@ void mp_gsound_play_sfx_on_obj(int sound_id, int loops, int64_t obj);
 void mp_gsound_play_scheme(int music_scheme_idx, int ambient_scheme_idx);
 void sub_4F0640(int64_t obj, ObjectID* oid_ptr);
 void sub_4F0690(ObjectID oid, int64_t* obj_ptr);
+void mp_send_object_location(int64_t obj, int64_t loc);
+void sub_4EFB50(Packet121* pkt);
+void mp_send_appearance_sync(int64_t obj);
+void mp_test_sync_pc_location(void);
 
 #endif /* ARCANUM_GAME_MP_UTILS_H_ */

@@ -478,19 +478,6 @@ bool inven_ui_open(int64_t pc_obj, int64_t target_obj, int mode)
         return true;
     }
 
-    if (tig_net_is_active() && !tig_net_is_host()) {
-        Packet100 pkt;
-
-        pkt.type = 100;
-        pkt.subtype = 12;
-        sub_4F0640(pc_obj, &(pkt.d.z.field_8));
-        sub_4F0640(target_obj, &(pkt.d.z.field_20));
-        pkt.d.z.field_38 = mode;
-        pkt.d.z.field_3C = 0;
-        tig_net_send_app_all(&pkt, sizeof(pkt));
-
-        return true;
-    }
 
     if (!sub_572370(pc_obj, target_obj, mode)) {
         return false;
@@ -4212,40 +4199,34 @@ bool sub_578EA0(Packet81* pkt)
             }
         } else {
             if ((flags & 0x04) != 0) {
-                if (!tig_net_is_active() || tig_net_is_host()) {
-                    if (item_check_remove(v2) == ITEM_CANNOT_OK) {
-                        item_remove(v2);
-                    } else {
-                        error = true;
-                    }
+                if (item_check_remove(v2) == ITEM_CANNOT_OK) {
+                    item_remove(v2);
+                } else {
+                    error = true;
                 }
             } else if ((flags & 0x01) != 0) {
-                if (!tig_net_is_active() || tig_net_is_host()) {
-                    if (v3 != v6) {
-                        if (IS_WEAR_INV_LOC(inventory_location)) {
-                            if (!item_transfer_ex(v2, v4, inventory_location)) {
-                                error = true;
-                            }
-                        } else {
-                            if (!item_transfer_ex(v2, v5, inventory_location)) {
-                                error = true;
-                            }
+                if (v3 != v6) {
+                    if (IS_WEAR_INV_LOC(inventory_location)) {
+                        if (!item_transfer_ex(v2, v4, inventory_location)) {
+                            error = true;
                         }
                     } else {
-                        if (!item_transfer_ex(v2, v3, inventory_location)) {
+                        if (!item_transfer_ex(v2, v5, inventory_location)) {
                             error = true;
                         }
                     }
-
-                    if (v6 != OBJ_HANDLE_NULL) {
-                        int sound_id = sfx_item_sound(v2, v3, OBJ_HANDLE_NULL, ITEM_SOUND_DROP);
-                        sub_4EED00(v6, sound_id);
+                } else {
+                    if (!item_transfer_ex(v2, v3, inventory_location)) {
+                        error = true;
                     }
                 }
-            } else if ((flags & 0x02) != 0) {
-                if (!tig_net_is_active() || tig_net_is_host()) {
-                    item_drop(v2);
+
+                if (v6 != OBJ_HANDLE_NULL) {
+                    int sound_id = sfx_item_sound(v2, v3, OBJ_HANDLE_NULL, ITEM_SOUND_DROP);
+                    sub_4EED00(v6, sound_id);
                 }
+            } else if ((flags & 0x02) != 0) {
+                item_drop(v2);
                 if (v6 != OBJ_HANDLE_NULL) {
                     int sound_id = sfx_item_sound(v2, v3, OBJ_HANDLE_NULL, ITEM_SOUND_DROP);
                     sub_4EED00(v6, sound_id);

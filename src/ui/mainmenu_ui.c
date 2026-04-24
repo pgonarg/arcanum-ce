@@ -1,6 +1,10 @@
 #include "ui/mainmenu_ui.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#include "net/mp_log.h"
+#include "net/network.h"
 
 #include "game/area.h"
 #include "game/background.h"
@@ -26,6 +30,7 @@
 #include "game/stat.h"
 #include "game/teleport.h"
 #include "game/timeevent.h"
+#include "game/multiplayer.h"
 #include "ui/broadcast_ui.h"
 #include "ui/charedit_ui.h"
 #include "ui/fate_ui.h"
@@ -472,6 +477,14 @@ static MainMenuButtonInfo mainmenu_ui_mainmenu_no_multiplayer_buttons[] = {
     { 410, 293, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_0, 0, 0, { 0 }, -1 },
 };
 
+static MainMenuButtonInfo mainmenu_ui_mainmenu_with_multiplayer_buttons[] = {
+    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_SINGLE_PLAYER, 0, 0, { 0 }, -1 },
+    { 410, 193, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_MULTIPLAYER, 0, 0, { 0 }, -1 },
+    { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_OPTIONS, 0, 0, { 0 }, -1 },
+    { 410, 293, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_CREDITS, 0, 0, { 0 }, -1 },
+    { 410, 343, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_0, 0, 0, { 0 }, -1 },
+};
+
 // 0x5C4170
 static MainMenuWindowInfo mainmenu_ui_mainmenu_window_info = {
     329,
@@ -483,9 +496,9 @@ static MainMenuWindowInfo mainmenu_ui_mainmenu_window_info = {
     NULL,
     NULL,
     NULL,
-    460,
-    SDL_arraysize(mainmenu_ui_mainmenu_no_multiplayer_buttons),
-    mainmenu_ui_mainmenu_no_multiplayer_buttons,
+    10,
+    SDL_arraysize(mainmenu_ui_mainmenu_with_multiplayer_buttons),
+    mainmenu_ui_mainmenu_with_multiplayer_buttons,
     0,
     0,
     0xD,
@@ -885,6 +898,93 @@ static MainMenuWindowInfo mainmenu_ui_single_player_window_info = {
     2,
 };
 
+// Multiplayer window buttons
+static MainMenuButtonInfo mainmenu_ui_multiplayer_buttons[] = {
+    { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 193, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 243, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
+};
+
+// Forward declarations for multiplayer functions
+void mainmenu_ui_create_multiplayer(void);
+bool mainmenu_ui_multiplayer_button_released(tig_button_handle_t button_handle);
+
+static MainMenuWindowInfo mainmenu_ui_multiplayer_window_info = {
+    329,
+    mainmenu_ui_create_multiplayer,
+    NULL,
+    0,
+    NULL,
+    mainmenu_ui_multiplayer_button_released,
+    NULL,
+    NULL,
+    NULL,
+    220,
+    SDL_arraysize(mainmenu_ui_multiplayer_buttons),
+    mainmenu_ui_multiplayer_buttons,
+    0,
+    0,
+    0xD,
+    {
+        { -1, 0, 0 },
+        { -1, 0, 0 },
+    },
+    NULL,
+    NULL,
+    { 0 },
+    NULL,
+    { 0 },
+    NULL,
+    0,
+    0,
+    0,
+    -1,
+    0,
+};
+
+// Forward declarations for address input functions
+void mainmenu_ui_create_multiplayer_join_address(void);
+bool mainmenu_ui_multiplayer_join_address_execute(int btn);
+
+// Multiplayer join address input window buttons
+static MainMenuButtonInfo mainmenu_ui_multiplayer_join_address_buttons[] = {
+    { 410, 200, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PICK_NEW_OR_PREGEN, 0, 0, { 0 }, -1 },
+    { 410, 250, -1, TIG_BUTTON_HANDLE_INVALID, -2, 0, 0x4, { 0 }, -1 },
+};
+
+static MainMenuWindowInfo mainmenu_ui_multiplayer_join_address_window_info = {
+    329,
+    mainmenu_ui_create_multiplayer_join_address,
+    NULL,
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    230,
+    SDL_arraysize(mainmenu_ui_multiplayer_join_address_buttons),
+    mainmenu_ui_multiplayer_join_address_buttons,
+    0,
+    0,
+    0xD,
+    {
+        { -1, 0, 0 },
+        { -1, 0, 0 },
+    },
+    NULL,
+    mainmenu_ui_multiplayer_join_address_execute,
+    { 0 },
+    NULL,
+    { 0 },
+    NULL,
+    0,
+    0,
+    0,
+    -1,
+    0,
+};
+
 // 0x5C4B20
 static MainMenuButtonInfo mainmenu_ui_pick_new_or_pregen_buttons[] = {
     { 410, 143, -1, TIG_BUTTON_HANDLE_INVALID, MM_WINDOW_PREGEN_CHAR, 0, 0, { 0 }, -1 },
@@ -1256,6 +1356,8 @@ static MainMenuWindowInfo* main_menu_window_info[MM_WINDOW_COUNT] = {
     /*                    MM_WINDOW_SHOP */ &mainmenu_ui_shop_info,
     /*                 MM_WINDOW_CREDITS */ &mainmenu_ui_credits_window_info,
     /*                      MM_WINDOW_26 */ &stru_5C4338,
+    /*              MM_WINDOW_MULTIPLAYER */ &mainmenu_ui_multiplayer_window_info,
+    /*    MM_WINDOW_MULTIPLAYER_JOIN_ADDRESS */ &mainmenu_ui_multiplayer_join_address_window_info,
 };
 
 // 0x64B870
@@ -1354,6 +1456,12 @@ static bool mainmenu_ui_auto_equip_items_on_start;
 // 0x64C428
 static bool dword_64C428;
 
+// Game mode tracking
+static GameMode mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+
+// Network address buffer for multiplayer join mode
+static char mainmenu_ui_network_address[128];
+
 // 0x64C42C
 static int dword_64C42C[3];
 
@@ -1389,6 +1497,69 @@ static int64_t qword_64C460;
 
 // 0x64C468
 static int dword_64C468;
+
+
+void mainmenu_ui_create_multiplayer(void)
+{
+    MP_INFO(MP_CAT_UI, "Multiplayer window opened");
+    mainmenu_ui_window_type = MM_WINDOW_MULTIPLAYER;
+    mainmenu_ui_create_window();
+    mainmenu_ui_draw_version();
+}
+
+// Button release handler for multiplayer menu
+bool mainmenu_ui_multiplayer_button_released(tig_button_handle_t button_handle)
+{
+    MainMenuButtonInfo* buttons = mainmenu_ui_multiplayer_buttons;
+    int num_buttons = SDL_arraysize(mainmenu_ui_multiplayer_buttons);
+
+    // Find which button was pressed
+    for (int i = 0; i < num_buttons; i++) {
+        if (buttons[i].button_handle == button_handle) {
+            if (i == 0) {  // Join Game button
+                MP_INFO(MP_CAT_UI, "Multiplayer: user selected JOIN GAME");
+                mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_JOIN;
+                mainmenu_ui_auto_equip_items_on_start = true;
+            } else if (i == 1) {  // Host Game button
+                MP_INFO(MP_CAT_UI, "Multiplayer: user selected HOST GAME");
+                mainmenu_ui_game_mode = GAME_MODE_MULTIPLAYER_HOST;
+                mainmenu_ui_auto_equip_items_on_start = true;
+            }
+            break;
+        }
+    }
+    return false;  // Allow default handling (window transition)
+}
+
+void mainmenu_ui_create_multiplayer_join_address(void)
+{
+    TextEdit textedit;
+
+    mainmenu_ui_window_type = MM_WINDOW_MULTIPLAYER_JOIN_ADDRESS;
+    mainmenu_ui_create_window();
+    mainmenu_ui_draw_version();
+
+    textedit.flags = 0;
+    textedit.buffer = mainmenu_ui_network_address;
+    textedit.size = sizeof(mainmenu_ui_network_address) - 1;
+    textedit.on_enter = NULL;
+    textedit.on_change = NULL;
+    textedit.on_tab = NULL;
+    textedit_ui_focus(&textedit);
+}
+
+bool mainmenu_ui_multiplayer_join_address_execute(int btn)
+{
+    // btn == 0 is the Connect button; copy the entered address into the
+    // network layer's join address before character selection proceeds.
+    if (btn == 0 && mainmenu_ui_network_address[0] != '\0') {
+        strncpy(g_mp_join_address, mainmenu_ui_network_address,
+                sizeof(g_mp_join_address) - 1);
+        g_mp_join_address[sizeof(g_mp_join_address) - 1] = '\0';
+        MP_INFO(MP_CAT_UI, "Join address set to: %s", g_mp_join_address);
+    }
+    return true;
+}
 
 // 0x540930
 bool mainmenu_ui_init(GameInitInfo* init_info)
@@ -1678,6 +1849,26 @@ void sub_5412E0(bool a1)
                 teleport_data.fade_in.color = tig_color_make(0, 0, 0);
                 teleport_do(&teleport_data);
 
+                MP_INFO(MP_CAT_SESSION, "Game starting: mode=%d (0=single 1=host 2=join)",
+                        (int)mainmenu_ui_game_mode);
+                if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_HOST) {
+                    MP_INFO(MP_CAT_SESSION, "Starting server on port %d", NET_PORT);
+                    sub_49CC50();
+                    if (!tig_net_is_active()) {
+                        MP_ERROR(MP_CAT_SESSION, "Failed to start server — aborting multiplayer");
+                        mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+                    }
+                } else if (mainmenu_ui_game_mode == GAME_MODE_MULTIPLAYER_JOIN) {
+                    MP_INFO(MP_CAT_SESSION, "Connecting to %s:%d", g_mp_join_address, NET_PORT);
+                    if (!multiplayer_start()) {
+                        MP_ERROR(MP_CAT_SESSION, "Failed to connect to %s — aborting multiplayer",
+                                 g_mp_join_address);
+                        mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+                    }
+                } else {
+                    MP_INFO(MP_CAT_SESSION, "Starting single player");
+                }
+
                 gsound_stop_all(0);
 
                 mes_file_entry.num = 6000; // "Please Wait"
@@ -1823,6 +2014,8 @@ void mainmenu_ui_reset(void)
     schematic_ui_close();
     gamelib_reset();
     gameuilib_reset();
+    mainmenu_ui_game_mode = GAME_MODE_SINGLE_PLAYER;
+    memset(mainmenu_ui_network_address, 0, sizeof(mainmenu_ui_network_address));
 }
 
 // 0x541740

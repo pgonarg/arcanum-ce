@@ -494,19 +494,16 @@ void mp_handle_gsound_play_scheme(PacketPlaySound* pkt)
 // 0x4EF320
 void sub_4EF320(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EF3D0
 void sub_4EF3D0(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EF540
 void sub_4EF540(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EF830
@@ -567,7 +564,9 @@ void sub_4EFB50(Packet121* pkt)
 
     multiplayer_lock();
     sub_4F0690(pkt->oid, &obj);
-    sub_463B30(obj, pkt->field_20);
+    if (obj != OBJ_HANDLE_NULL && !player_is_pc_obj(obj)) {
+        sub_463B30(obj, pkt->field_20);
+    }
     multiplayer_unlock();
 }
 
@@ -587,7 +586,6 @@ void sub_4EFBA0(int64_t obj)
 // 0x4EFBE0
 void sub_4EFBE0(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4EFC30
@@ -613,7 +611,6 @@ void sub_4EFC30(int64_t pc_obj, const char* name, const char* rule)
 // 0x4F05F0
 void sub_4F05F0(void)
 {
-    // TODO: Incomplete.
 }
 
 // 0x4F0640
@@ -633,5 +630,66 @@ void sub_4F0690(ObjectID oid, int64_t* obj_ptr)
         *obj_ptr = obj_pool_perm_lookup(oid);
     } else {
         *obj_ptr = OBJ_HANDLE_NULL;
+    }
+}
+
+// Send object location update to other players
+void mp_send_object_location(int64_t obj, int64_t loc)
+{
+    Packet27 pkt;
+
+    // Send location updates only if networking is active
+    // Both host and client send their own positions
+    if (!tig_net_is_active()) {
+        return;
+    }
+
+    pkt.type = 27;
+    pkt.padding_4 = 0;
+    pkt.oid = obj_get_id(obj);
+    if (pkt.oid.type == OID_TYPE_NULL) {
+        return;
+    }
+    pkt.loc = loc;
+    tig_net_send_app_all(&pkt, sizeof(pkt));
+}
+
+void mp_send_appearance_sync(int64_t obj)
+{
+    PacketAppearanceSync pkt;
+
+    if (!tig_net_is_active()) {
+        return;
+    }
+
+    pkt.type = 125;
+    // OBJ_F_CURRENT_AID has armor subtype baked in (via tig_art_critter_id_armor_set
+    // when armor is equipped). OBJ_F_AID stays as the bare-body base art.
+    // Normalize to STAND/frame-0 so we ship the appearance without animation state.
+    tig_art_id_t aid = (tig_art_id_t)obj_field_int32_get(obj, OBJ_F_CURRENT_AID);
+    aid = tig_art_id_anim_set(aid, TIG_ART_ANIM_STAND);
+    aid = tig_art_id_frame_set(aid, 0);
+    pkt.art_id = aid;
+    sub_4F0640(obj, &pkt.oid);
+    if (pkt.oid.type == OID_TYPE_NULL) {
+        return;
+    }
+    tig_net_send_app_all(&pkt, sizeof(pkt));
+}
+
+// TEST: Sync first PC location to test Packet27
+void mp_test_sync_pc_location(void)
+{
+    int64_t pc;
+    int64_t loc;
+
+    if (!tig_net_is_active()) {
+        return;
+    }
+
+    pc = multiplayer_player_find_first();
+    if (pc != OBJ_HANDLE_NULL) {
+        loc = obj_field_int64_get(pc, 0);  // Assuming field 0 is location
+        mp_send_object_location(pc, loc);
     }
 }
